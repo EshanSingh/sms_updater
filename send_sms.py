@@ -14,7 +14,7 @@ import time
 account_sid = "AC6e173fbe537c10c06893367f334dd284"
 auth_token = "98e0e487f0b8eb6a9576cb9ab6b57ad2"
 
-# URL
+# URL (Change for class)
 url = 'https://app.testudo.umd.edu/soc/search?courseId=CMSC351&sectionId=&termId=202408&_openSectionsOnly=on&creditCompare=&credits=&courseLevelFilter=ALL&instructor=&_facetoface=on&_blended=on&_online=on&courseStartCompare=&courseStartHour=&courseStartMin=&courseStartAM=&courseEndHour=&courseEndMin=&courseEndAM=&teachingCenter=ALL&_classDay1=on&_classDay2=on&_classDay3=on&_classDay4=on&_classDay5=on'
 
 # Get page
