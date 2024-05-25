@@ -77,6 +77,7 @@ while True:
                 from_="+18333551367",
                 body="Herve opening"
                 )
+                print('CHANGES TO HERVE')
             else:
                 #Send sms (WORKING)
                 client.messages.create(
@@ -84,6 +85,7 @@ while True:
                 from_="+18333551367",
                 body="Justin opening"
                 )
+                print('CHANGES TO JUSTIN')
 
             # Get new info
             soup = BeautifulSoup(page.text, 'html')
