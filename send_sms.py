@@ -108,3 +108,7 @@ while True:
         break
 
 
+# Commands:
+# git commit -am "Comments" (Stages changes)
+# git push origin main      (Pushes Changes to repository)
+# git pull origin main      (Pulls most recent repository to current setup) DOUBLE CHECK
