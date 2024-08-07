@@ -1,15 +1,15 @@
 Script developed to check availibility of sections in classes at UMD using testudo schedule of classes
 
-Uses: 
+Uses:
 
 Twilio - Sending SMS updates
 BeautifulSoup - Checking Website Content
 
----------------------------------------------
+---
 
-Sends an SMS message when changes in website content are detected during scan (Scans occur ~30 seconds)
+Sends an SMS message when changes in website content are detected between scans (Scans occur ~30 seconds)
 
----------------------------------------------
+---
 
 Code Reuse Notes:
 
