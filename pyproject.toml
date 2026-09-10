@@ -33,4 +33,7 @@ testudo_watch = ["templates/*.html"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
-filterwarnings = ["ignore:The 'strip_cdata' option:DeprecationWarning"]
+filterwarnings = [
+    "ignore:The 'strip_cdata' option:DeprecationWarning",
+    "ignore:Using .httpx. with .starlette.testclient. is deprecated:UserWarning",
+]

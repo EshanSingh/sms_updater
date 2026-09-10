@@ -1,0 +1,22 @@
+{% if not watches %}
+  <p class="muted">No watches configured yet.</p>
+{% endif %}
+{% for w in watches %}
+  <h3>{{ w.course_id }} <span class="muted">{{ w.term_id }} &middot; {{ w.section_label }}</span></h3>
+  {% if not w.sections %}
+    <p class="muted">No sections seen yet.</p>
+  {% else %}
+  <table>
+    <tr><th>Section</th><th>Open</th><th>Total</th><th>Waitlist</th><th></th></tr>
+    {% for s in w.sections %}
+    <tr>
+      <td>{{ s.section_id }}</td>
+      <td><span class="dot {{ 'open' if s.is_open else 'closed' }}"></span> {{ s.open_seats }}</td>
+      <td>{{ s.total_seats }}</td>
+      <td>{{ s.waitlist }}</td>
+      <td class="muted">updated {{ s.updated_age }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+{% endfor %}

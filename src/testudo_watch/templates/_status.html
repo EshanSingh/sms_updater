@@ -1,0 +1,12 @@
+{% if not status.has_data %}
+  <p class="banner">Watcher has not completed a poll yet &mdash; run <code>testudo-watch run</code>.</p>
+{% else %}
+  <p{% if status.stale %} class="banner"{% endif %}>
+    Watcher: last poll <strong>{{ status.last_poll_age }}</strong> &middot;
+    cycle <strong>{{ status.cycle_count }}</strong>{% if status.stale %} &mdash; may be stopped{% endif %}
+  </p>
+{% endif %}
+{% for u in status.unhealthy %}
+  <p class="banner">&#9888; {{ u.course_id }} {{ u.term_id }} &mdash;
+    {{ u.consecutive_failures }} consecutive failure(s){% if u.last_error %}: {{ u.last_error }}{% endif %}</p>
+{% endfor %}

@@ -1,0 +1,15 @@
+{% if not notifications %}
+  <p class="muted">No notifications yet.</p>
+{% else %}
+<table>
+  {% for n in notifications %}
+  <tr>
+    <td class="muted">{{ n.sent_age }}</td>
+    <td>{{ n.course_id }} {{ n.section_id }}</td>
+    <td>{{ n.open_seats }} open</td>
+    <td class="muted">{{ n.channel }}</td>
+    <td><span class="badge {{ n.status }}">{{ n.status }}</span></td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}

@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 from testudo_watch.config import AppConfig
 from testudo_watch.db import Database
@@ -124,3 +130,63 @@ def build_notifications_view(
         )
         for n in db.recent_notifications(limit)
     ]
+
+
+_TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+
+def create_app(config: AppConfig) -> FastAPI:
+    app = FastAPI(title="testudo-watch")
+
+    def _load_views() -> dict | None:
+        now = datetime.now(timezone.utc)
+        try:
+            db = Database(config.db_path, read_only=True)
+        except sqlite3.OperationalError:
+            return None
+        try:
+            return {
+                "status": build_status_view(db, config, now=now),
+                "watches": build_watches_view(db, now=now),
+                "notifications": build_notifications_view(db, now=now),
+            }
+        except sqlite3.OperationalError:
+            return None
+        finally:
+            db.close()
+
+    @app.get("/", response_class=HTMLResponse)
+    def dashboard(request: Request):
+        views = _load_views()
+        if views is None:
+            return _TEMPLATES.TemplateResponse(request, "no_data.html", {})
+        return _TEMPLATES.TemplateResponse(request, "dashboard.html", views)
+
+    @app.get("/fragments/status", response_class=HTMLResponse)
+    def fragment_status(request: Request):
+        views = _load_views()
+        if views is None:
+            return _TEMPLATES.TemplateResponse(request, "_no_data.html", {})
+        return _TEMPLATES.TemplateResponse(
+            request, "_status.html", {"status": views["status"]}
+        )
+
+    @app.get("/fragments/watches", response_class=HTMLResponse)
+    def fragment_watches(request: Request):
+        views = _load_views()
+        if views is None:
+            return _TEMPLATES.TemplateResponse(request, "_no_data.html", {})
+        return _TEMPLATES.TemplateResponse(
+            request, "_watches.html", {"watches": views["watches"]}
+        )
+
+    @app.get("/fragments/notifications", response_class=HTMLResponse)
+    def fragment_notifications(request: Request):
+        views = _load_views()
+        if views is None:
+            return _TEMPLATES.TemplateResponse(request, "_no_data.html", {})
+        return _TEMPLATES.TemplateResponse(
+            request, "_notifications.html", {"notifications": views["notifications"]}
+        )
+
+    return app
