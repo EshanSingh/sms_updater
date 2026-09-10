@@ -148,3 +148,36 @@ def test_health_alert_fires_once_at_threshold(tmp_path):
     health = [m for m in notifier.sent if "consecutive" in m]
     assert len(health) == 1
     db.close()
+
+
+def test_run_once_writes_a_heartbeat(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.sync_watches([Watch("CMSC351", "202601", ())])
+    fetch = lambda s, c, t: [snap("CMSC351", "0101", 6)]
+    run(cfg(), db, FakeNotifier(), None, once=True, fetch=fetch, sleep=lambda s: None)
+    hb = db.get_heartbeat()
+    assert hb is not None and hb.cycle_count == 1
+    db.close()
+
+
+def test_run_records_watch_health_on_success(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.sync_watches([Watch("CMSC351", "202601", ())])
+    fetch = lambda s, c, t: [snap("CMSC351", "0101", 6)]
+    run(cfg(), db, FakeNotifier(), None, once=True, fetch=fetch, sleep=lambda s: None)
+    h = db.get_watch_health()[("CMSC351", "202601")]
+    assert h.consecutive_failures == 0 and h.last_success_at is not None
+    db.close()
+
+
+def test_run_records_watch_health_on_scrape_failure(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.sync_watches([Watch("CMSC351", "202601", ())])
+
+    def boom(session, course_id, term_id):
+        raise ScrapeError("testudo down")
+
+    run(cfg(), db, FakeNotifier(), None, once=True, fetch=boom, sleep=lambda s: None)
+    h = db.get_watch_health()[("CMSC351", "202601")]
+    assert h.consecutive_failures == 1 and h.last_error == "testudo down"
+    db.close()

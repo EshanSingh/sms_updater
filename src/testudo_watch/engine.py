@@ -43,9 +43,10 @@ def _process_watch(config, db, notifier, session, watch, fetch, failure_counts) 
     key = f"{watch.course_id}/{watch.term_id}"
     try:
         current = fetch(session, watch.course_id, watch.term_id)
-    except (ScrapeError, requests.RequestException):
+    except (ScrapeError, requests.RequestException) as exc:
         _log.error("scrape failed for %s", key, exc_info=True)
         failure_counts[key] = failure_counts.get(key, 0) + 1
+        db.upsert_watch_health(watch, ok=False, error=str(exc))
         if failure_counts[key] == FAILURE_ALERT_THRESHOLD:
             msg = (
                 f"testudo-watch: {watch.course_id} has failed "
@@ -70,6 +71,7 @@ def _process_watch(config, db, notifier, session, watch, fetch, failure_counts) 
         return
 
     failure_counts[key] = 0
+    db.upsert_watch_health(watch, ok=True)
     previous = db.get_snapshots(watch)
     events = detect_openings(previous, current, watch)
 
@@ -125,7 +127,9 @@ def run(
             signal.signal(sig, _request_stop)
 
     try:
+        cycle_count = 0
         while True:
+            cycle_count += 1
             for index, watch in enumerate(db.get_active_watches()):
                 if _stop:
                     return
@@ -135,6 +139,7 @@ def run(
                 _process_watch(
                     config, db, notifier, session, watch, fetch, failure_counts
                 )
+            db.write_heartbeat(cycle_count)
             if once or _stop:
                 return
             sleep(config.poll_interval_seconds + random.uniform(0, JITTER_MAX_SECONDS))
