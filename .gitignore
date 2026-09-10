@@ -17,3 +17,4 @@ logs/
 
 # tooling
 .pytest_cache/
+.superpowers/
