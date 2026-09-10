@@ -1,0 +1,21 @@
+# How often to poll Testudo, in seconds. Hard minimum is 15.
+poll_interval_seconds = 30
+
+# "console" logs openings locally; "sms" sends Twilio texts (needs .env).
+notifier = "console"
+
+# Optional overrides (defaults shown):
+# db_path = "testudo_watch.db"
+# log_dir = "logs"
+
+# One [[watch]] block per course. Set term_id to the current Testudo term.
+# Leave sections empty (or omit) to be notified when ANY section opens.
+[[watch]]
+course_id = "CMSC351"
+term_id = "202601"
+sections = ["0101", "0201"]
+
+[[watch]]
+course_id = "MATH240"
+term_id = "202601"
+sections = []
