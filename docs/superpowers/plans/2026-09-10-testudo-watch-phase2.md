@@ -1017,7 +1017,7 @@ git commit -m "feat(web): view-model builders for status, watches, notifications
 
 ```python
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -1078,7 +1078,10 @@ def test_fragment_routes_return_bare_partials(tmp_path):
 
 
 def test_status_fragment_shows_stale_for_old_heartbeat(tmp_path):
-    seed(tmp_path, heartbeat_at="2026-09-10 09:00:00")
+    stale_at = (datetime.now(timezone.utc) - timedelta(days=1)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    seed(tmp_path, heartbeat_at=stale_at)
     client = TestClient(create_app(cfg(tmp_path / "s.db")))
     r = client.get("/fragments/status")
     assert r.status_code == 200
