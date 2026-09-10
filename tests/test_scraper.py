@@ -39,6 +39,32 @@ def test_parse_raises_when_seat_count_missing():
         parse_sections(broken, "CMSC351", "202508")
 
 
+def test_parse_missing_waitlist_span_defaults_to_zero():
+    # Testudo omits the waitlist block entirely for sections with no waitlist.
+    no_waitlist = """
+    <div class="section">
+      <input type="hidden" name="sectionId" value="0101" />
+      <span class="seats-info">
+        <span class="total-seats-count">30</span>
+        <span class="open-seats-count">4</span>
+      </span>
+    </div>
+    """
+    snaps = parse_sections(no_waitlist, "CMSC351", "202601")
+    assert snaps == [SectionSnapshot("CMSC351", "202601", "0101", 30, 4, 0)]
+
+
+def test_parse_still_raises_when_total_or_open_missing():
+    missing_open = """
+    <div class="section">
+      <input type="hidden" name="sectionId" value="0101" />
+      <span class="seats-info"><span class="total-seats-count">30</span></span>
+    </div>
+    """
+    with pytest.raises(ScrapeError, match="open-seats-count"):
+        parse_sections(missing_open, "CMSC351", "202601")
+
+
 class _FakeResponse:
     def __init__(self, status_code, text=""):
         self.status_code = status_code
