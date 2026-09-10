@@ -20,12 +20,15 @@ _log = logging.getLogger("testudo_watch.cli")
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="testudo-watch")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("run", "check-once", "list"):
+    for name in ("run", "check-once", "list", "serve"):
         p = sub.add_parser(name)
         p.add_argument("--config", default="watches.toml")
         p.add_argument("--db", default=None)
-        if name != "list":
+        if name not in ("list", "serve"):
             p.add_argument("--verbose", action="store_true")
+        if name == "serve":
+            p.add_argument("--host", default="127.0.0.1")
+            p.add_argument("--port", default=8477, type=int)
     return parser
 
 
@@ -72,6 +75,15 @@ def _cmd_run(config, watches, *, once: bool) -> int:
     return 0
 
 
+def _cmd_serve(config, *, host: str, port: int) -> int:
+    import uvicorn
+
+    from testudo_watch.web import create_app
+
+    uvicorn.run(create_app(config), host=host, port=port)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     args = _build_parser().parse_args(argv)
@@ -85,6 +97,16 @@ def main(argv: list[str] | None = None) -> int:
         configure_logging(config.log_dir)
         try:
             return _cmd_list(config, watches)
+        except Exception:  # noqa: BLE001
+            _log.exception("fatal error")
+            return 2
+
+    if args.command == "serve":
+        configure_logging(config.log_dir)
+        try:
+            return _cmd_serve(config, host=args.host, port=args.port)
+        except KeyboardInterrupt:
+            return 0
         except Exception:  # noqa: BLE001
             _log.exception("fatal error")
             return 2

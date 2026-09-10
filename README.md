@@ -41,6 +41,21 @@ testudo-watch list         # show watches and last-seen seat counts
 State is kept in `testudo_watch.db` (SQLite); logs in `logs/testudo_watch.log`.
 Stopping and restarting does not re-notify for a section that is still open.
 
+## Web dashboard
+
+With the watcher running (`testudo-watch run`), start the read-only dashboard in
+another terminal:
+
+```bash
+testudo-watch serve
+```
+
+Open <http://127.0.0.1:8477/>. It shows each configured watch with live
+per-section seat counts, recent notifications, and when the watcher last polled
+(with a warning banner if it looks stopped). It only reads
+`testudo_watch.db` — it never edits your watches or sends anything. Override the
+bind address with `--host` / `--port`.
+
 ## Test
 
 ```bash

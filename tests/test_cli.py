@@ -74,3 +74,36 @@ def test_list_prints_watches_and_last_seen(tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "CMSC351" in out and "0101" in out and "2" in out
+
+
+def test_serve_parser_builds_without_verbose():
+    from testudo_watch.cli import _build_parser
+
+    args = _build_parser().parse_args(
+        ["serve", "--host", "0.0.0.0", "--port", "9001"]
+    )
+    assert args.command == "serve"
+    assert args.host == "0.0.0.0" and args.port == 9001
+    assert not hasattr(args, "verbose")
+
+
+def test_serve_invokes_uvicorn_with_parsed_host_and_port(tmp_path, monkeypatch):
+    config_path = write_config(tmp_path)
+    seen = {}
+
+    def fake_run(app, host, port):
+        seen["app"] = app
+        seen["host"] = host
+        seen["port"] = port
+
+    def fake_create_app(config):
+        seen["config"] = config
+        return object()
+
+    monkeypatch.setattr("uvicorn.run", fake_run)
+    monkeypatch.setattr("testudo_watch.web.create_app", fake_create_app)
+
+    rc = cli.main(["serve", "--config", str(config_path), "--port", "1234"])
+    assert rc == 0
+    assert seen["host"] == "127.0.0.1" and seen["port"] == 1234
+    assert seen["config"].poll_interval_seconds == 30
