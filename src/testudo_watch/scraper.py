@@ -20,9 +20,11 @@ def build_session() -> requests.Session:
     return session
 
 
-def _seat_count(section, class_name: str) -> int:
+def _seat_count(section, class_name: str, *, default: int | None = None) -> int:
     node = section.find("span", class_=class_name)
     if node is None:
+        if default is not None:
+            return default
         raise ScrapeError(f"missing {class_name!r} in section markup")
     text = node.get_text(strip=True)
     try:
@@ -57,7 +59,7 @@ def parse_sections(
                 section_id=section_id,
                 total_seats=_seat_count(section, "total-seats-count"),
                 open_seats=_seat_count(section, "open-seats-count"),
-                waitlist=_seat_count(section, "waitlist-count"),
+                waitlist=_seat_count(section, "waitlist-count", default=0),
             )
         )
     return snapshots
