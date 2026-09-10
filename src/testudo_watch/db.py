@@ -2,15 +2,51 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 from testudo_watch.models import SectionSnapshot, Watch
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class DatabaseError(Exception):
     """Raised when the on-disk database cannot be used by this version."""
+
+
+@dataclass(frozen=True)
+class Heartbeat:
+    updated_at: str
+    cycle_count: int
+
+
+@dataclass(frozen=True)
+class WatchHealth:
+    consecutive_failures: int
+    last_success_at: str | None
+    last_error: str | None
+    last_error_at: str | None
+
+
+@dataclass(frozen=True)
+class SectionRow:
+    section_id: str
+    total_seats: int
+    open_seats: int
+    waitlist: int
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class NotificationRow:
+    sent_at: str
+    course_id: str
+    term_id: str
+    section_id: str
+    open_seats: int
+    channel: str
+    status: str
+    detail: str
 
 
 _SCHEMA = """
@@ -44,15 +80,36 @@ CREATE TABLE IF NOT EXISTS notifications (
     status     TEXT NOT NULL,
     detail     TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS watcher_heartbeat (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    updated_at  TEXT NOT NULL,
+    cycle_count INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS watch_health (
+    course_id            TEXT NOT NULL,
+    term_id              TEXT NOT NULL,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    last_success_at      TEXT,
+    last_error           TEXT,
+    last_error_at        TEXT,
+    PRIMARY KEY (course_id, term_id)
+);
 """
 
 
 class Database:
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, read_only: bool = False) -> None:
         self.path = str(path)
-        self.connection = sqlite3.connect(self.path)
-        self.connection.row_factory = sqlite3.Row
-        self.migrate()
+        if read_only:
+            uri = Path(self.path).resolve().as_uri() + "?mode=ro"
+            self.connection = sqlite3.connect(uri, uri=True)
+            self.connection.row_factory = sqlite3.Row
+        else:
+            self.connection = sqlite3.connect(self.path)
+            self.connection.row_factory = sqlite3.Row
+            self.migrate()
 
     def close(self) -> None:
         self.connection.close()
@@ -167,3 +224,102 @@ class Database:
                     detail,
                 ),
             )
+
+    def write_heartbeat(self, cycle_count: int) -> None:
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO watcher_heartbeat (id, updated_at, cycle_count) "
+                "VALUES (1, datetime('now'), ?) "
+                "ON CONFLICT(id) DO UPDATE SET "
+                "updated_at = excluded.updated_at, "
+                "cycle_count = excluded.cycle_count",
+                (cycle_count,),
+            )
+
+    def get_heartbeat(self) -> Heartbeat | None:
+        row = self.connection.execute(
+            "SELECT updated_at, cycle_count FROM watcher_heartbeat WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return Heartbeat(updated_at=row["updated_at"], cycle_count=row["cycle_count"])
+
+    def upsert_watch_health(
+        self, watch: Watch, *, ok: bool, error: str = ""
+    ) -> None:
+        with self.connection:
+            if ok:
+                self.connection.execute(
+                    "INSERT INTO watch_health "
+                    "(course_id, term_id, consecutive_failures, last_success_at) "
+                    "VALUES (?, ?, 0, datetime('now')) "
+                    "ON CONFLICT(course_id, term_id) DO UPDATE SET "
+                    "consecutive_failures = 0, "
+                    "last_success_at = datetime('now')",
+                    (watch.course_id, watch.term_id),
+                )
+            else:
+                self.connection.execute(
+                    "INSERT INTO watch_health (course_id, term_id, "
+                    "consecutive_failures, last_error, last_error_at) "
+                    "VALUES (?, ?, 1, ?, datetime('now')) "
+                    "ON CONFLICT(course_id, term_id) DO UPDATE SET "
+                    "consecutive_failures = watch_health.consecutive_failures + 1, "
+                    "last_error = excluded.last_error, "
+                    "last_error_at = excluded.last_error_at",
+                    (watch.course_id, watch.term_id, error),
+                )
+
+    def get_watch_health(self) -> dict[tuple[str, str], WatchHealth]:
+        rows = self.connection.execute(
+            "SELECT course_id, term_id, consecutive_failures, last_success_at, "
+            "last_error, last_error_at FROM watch_health"
+        ).fetchall()
+        return {
+            (r["course_id"], r["term_id"]): WatchHealth(
+                consecutive_failures=r["consecutive_failures"],
+                last_success_at=r["last_success_at"],
+                last_error=r["last_error"],
+                last_error_at=r["last_error_at"],
+            )
+            for r in rows
+        }
+
+    def get_section_rows(self, watch: Watch) -> list[SectionRow]:
+        rows = self.connection.execute(
+            "SELECT section_id, total_seats, open_seats, waitlist, updated_at "
+            "FROM section_snapshots WHERE course_id = ? AND term_id = ? "
+            "ORDER BY section_id",
+            (watch.course_id, watch.term_id),
+        ).fetchall()
+        return [
+            SectionRow(
+                section_id=r["section_id"],
+                total_seats=r["total_seats"],
+                open_seats=r["open_seats"],
+                waitlist=r["waitlist"],
+                updated_at=r["updated_at"],
+            )
+            for r in rows
+        ]
+
+    def recent_notifications(self, limit: int = 50) -> list[NotificationRow]:
+        rows = self.connection.execute(
+            "SELECT sent_at, course_id, term_id, section_id, open_seats, "
+            "channel, status, detail FROM notifications "
+            "ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            NotificationRow(
+                sent_at=r["sent_at"],
+                course_id=r["course_id"],
+                term_id=r["term_id"],
+                section_id=r["section_id"],
+                open_seats=r["open_seats"],
+                channel=r["channel"],
+                status=r["status"],
+                detail=r["detail"],
+            )
+            for r in rows
+        ]
