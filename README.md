@@ -36,6 +36,7 @@ For SMS, copy `.env.example` to `.env` and fill in your Twilio
 testudo-watch check-once   # one pass, prints parsed seat counts
 testudo-watch run          # poll forever; Ctrl-C to stop
 testudo-watch list         # show watches and last-seen seat counts
+testudo-watch serve      # read-only web dashboard at http://127.0.0.1:8477
 ```
 
 State is kept in `testudo_watch.db` (SQLite); logs in `logs/testudo_watch.log`.
@@ -55,6 +56,9 @@ per-section seat counts, recent notifications, and when the watcher last polled
 (with a warning banner if it looks stopped). It only reads
 `testudo_watch.db` — it never edits your watches or sends anything. Override the
 bind address with `--host` / `--port`.
+
+The dashboard reflects what the watcher last wrote to the database — editing
+`watches.toml` has no effect until `testudo-watch run` is restarted.
 
 ## Test
 

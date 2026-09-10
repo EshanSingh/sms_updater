@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from testudo_watch.web_time import humanize_age, parse_db_utc
 
@@ -26,6 +26,13 @@ def test_humanize_age_across_unit_boundaries():
     assert humanize_age(_utc(2026, 9, 10, 11, 56, 0), now) == "4m ago"
     assert humanize_age(_utc(2026, 9, 10, 9, 0, 0), now) == "3h ago"
     assert humanize_age(_utc(2026, 9, 7, 12, 0, 0), now) == "3d ago"
+
+
+def test_humanize_age_exact_unit_thresholds():
+    now = _utc(2026, 9, 10, 12, 0, 0)
+    assert humanize_age(now - timedelta(seconds=60), now) == "1m ago"
+    assert humanize_age(now - timedelta(seconds=3600), now) == "1h ago"
+    assert humanize_age(now - timedelta(seconds=86400), now) == "1d ago"
 
 
 def test_humanize_age_clamps_future_to_zero():

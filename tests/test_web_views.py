@@ -85,6 +85,20 @@ def test_status_view_lists_unhealthy_watches(tmp_path):
     db.close()
 
 
+def test_status_view_omits_unhealthy_for_inactive_watch(tmp_path):
+    db = seed(tmp_path)
+    _set_heartbeat(db, "2026-09-10 11:59:40", 7)
+    db.upsert_watch_health(
+        Watch("CMSC351", "202601", ()), ok=False, error="HTTP 503"
+    )
+    # Watch removed from watches.toml -> deactivated; its stale failure must
+    # not linger as a permanent banner.
+    db.sync_watches([])
+    sv = build_status_view(db, cfg(tmp_path / "s.db"), now=NOW)
+    assert sv.unhealthy == []
+    db.close()
+
+
 def test_watches_view_filters_to_watched_sections(tmp_path):
     db = seed(tmp_path)
     views = build_watches_view(db, now=NOW)

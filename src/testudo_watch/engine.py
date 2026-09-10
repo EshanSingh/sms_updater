@@ -54,13 +54,13 @@ def _process_watch(config, db, notifier, session, watch, fetch, failure_counts) 
             )
             try:
                 notifier.send(msg)
-            except NotifierError as exc:
+            except NotifierError as send_exc:
                 _log.error("health alert send failed", exc_info=True)
                 db.record_notification(
                     SectionSnapshot(watch.course_id, watch.term_id, "-", 0, 0, 0),
                     channel=config.notifier,
                     status="health-failed",
-                    detail=str(exc),
+                    detail=str(send_exc),
                 )
             else:
                 db.record_notification(

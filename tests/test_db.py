@@ -177,6 +177,17 @@ def test_read_only_open_of_missing_file_raises_operationalerror(tmp_path):
         Database(tmp_path / "nope.db", read_only=True)
 
 
+def test_read_only_connection_rejects_writes(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.write_heartbeat(1)
+    db.close()
+
+    ro = Database(tmp_path / "s.db", read_only=True)
+    with pytest.raises(sqlite3.OperationalError):
+        ro.write_heartbeat(2)
+    ro.close()
+
+
 def test_read_only_open_does_not_write_user_version(tmp_path):
     handmade = tmp_path / "v0.db"
     con = sqlite3.connect(str(handmade))

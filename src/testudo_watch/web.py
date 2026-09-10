@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,6 +13,8 @@ from fastapi.templating import Jinja2Templates
 from testudo_watch.config import AppConfig
 from testudo_watch.db import Database
 from testudo_watch.web_time import humanize_age, parse_db_utc
+
+_log = logging.getLogger("testudo_watch.web")
 
 STALE_GRACE_SECONDS = 20
 
@@ -66,10 +69,11 @@ def build_status_view(
     db: Database, config: AppConfig, *, now: datetime
 ) -> StatusView:
     health = db.get_watch_health()
+    active = {(w.course_id, w.term_id) for w in db.get_active_watches()}
     unhealthy = [
         UnhealthyWatch(c, t, h.consecutive_failures, h.last_error)
         for (c, t), h in sorted(health.items())
-        if h.consecutive_failures > 0
+        if (c, t) in active and h.consecutive_failures > 0
     ]
     hb = db.get_heartbeat()
     if hb is None:
@@ -142,7 +146,8 @@ def create_app(config: AppConfig) -> FastAPI:
         now = datetime.now(timezone.utc)
         try:
             db = Database(config.db_path, read_only=True)
-        except sqlite3.OperationalError:
+        except sqlite3.DatabaseError as exc:
+            _log.warning("dashboard could not read %s: %s", config.db_path, exc)
             return None
         try:
             return {
@@ -150,7 +155,8 @@ def create_app(config: AppConfig) -> FastAPI:
                 "watches": build_watches_view(db, now=now),
                 "notifications": build_notifications_view(db, now=now),
             }
-        except sqlite3.OperationalError:
+        except sqlite3.DatabaseError as exc:
+            _log.warning("dashboard could not read %s: %s", config.db_path, exc)
             return None
         finally:
             db.close()
