@@ -26,10 +26,10 @@ class AppConfig:
 def load_config(path: str | Path) -> tuple[AppConfig, list[Watch]]:
     path = Path(path)
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))
     except FileNotFoundError as exc:
         raise ConfigError(f"config file not found: {path}") from exc
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         raise ConfigError(f"could not read config {path}: {exc}") from exc
 
     notifier = raw.get("notifier", "console")

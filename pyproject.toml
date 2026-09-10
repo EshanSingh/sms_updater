@@ -27,3 +27,4 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+filterwarnings = ["ignore:The 'strip_cdata' option:DeprecationWarning"]

@@ -8,6 +8,11 @@ from testudo_watch.models import SectionSnapshot, Watch
 
 SCHEMA_VERSION = 1
 
+
+class DatabaseError(Exception):
+    """Raised when the on-disk database cannot be used by this version."""
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS watches (
     course_id    TEXT NOT NULL,
@@ -44,15 +49,23 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 class Database:
     def __init__(self, path: str | Path) -> None:
-        self.connection = sqlite3.connect(str(path))
+        self.path = str(path)
+        self.connection = sqlite3.connect(self.path)
         self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA foreign_keys = ON")
         self.migrate()
 
     def close(self) -> None:
         self.connection.close()
 
     def migrate(self) -> None:
+        found = self.connection.execute("PRAGMA user_version").fetchone()[0]
+        if found > SCHEMA_VERSION:
+            raise DatabaseError(
+                f"database file {self.path} was written by a newer testudo-watch "
+                f"(schema v{found} > v{SCHEMA_VERSION}); upgrade the package"
+            )
+        # found == 0 (fresh/unversioned) or found == SCHEMA_VERSION: proceed.
+        # Future migrations for the 1..SCHEMA_VERSION-1 range go here.
         self.connection.executescript(_SCHEMA)
         self.connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self.connection.commit()

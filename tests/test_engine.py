@@ -1,11 +1,19 @@
 import pytest
 
+import testudo_watch.engine as engine
 from testudo_watch.db import Database
 from testudo_watch.engine import format_opening, run
 from testudo_watch.config import AppConfig
 from testudo_watch.models import OpeningEvent, SectionSnapshot, Watch
 from testudo_watch.notifier import NotifierError
 from testudo_watch.scraper import ScrapeError
+
+
+@pytest.fixture(autouse=True)
+def _reset_stop_flag():
+    engine._stop = False
+    yield
+    engine._stop = False
 
 
 def cfg():
@@ -51,6 +59,34 @@ def test_run_once_notifies_and_persists(tmp_path):
     rows = db.connection.execute("SELECT status FROM notifications").fetchall()
     assert [r["status"] for r in rows] == ["sent"]
     db.close()
+
+
+def test_run_loop_runs_one_cycle_then_stops_on_sleep(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.sync_watches([Watch("CMSC351", "202601", ())])
+    notifier = FakeNotifier()
+
+    def fake_fetch(session, course_id, term_id):
+        return [snap("CMSC351", "0101", 6)]
+
+    calls = {"n": 0}
+
+    def fake_sleep(_seconds):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            engine._stop = True
+
+    try:
+        result = run(
+            cfg(), db, notifier, None, once=False,
+            fetch=fake_fetch, sleep=fake_sleep,
+        )
+        assert result is None
+        assert len(notifier.sent) == 1 and "0101" in notifier.sent[0]
+        assert db.get_snapshots(Watch("CMSC351", "202601", ()))["0101"].open_seats == 6
+    finally:
+        engine._stop = False
+        db.close()
 
 
 def test_run_once_second_pass_is_silent_when_seats_unchanged(tmp_path):

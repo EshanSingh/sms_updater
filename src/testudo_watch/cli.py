@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import logging
 import sys
 
@@ -31,20 +32,14 @@ def _build_parser() -> argparse.ArgumentParser:
 def _load(args):
     config, watches = load_config(args.config)
     if args.db:
-        config = type(config)(
-            poll_interval_seconds=config.poll_interval_seconds,
-            notifier=config.notifier,
-            db_path=args.db,
-            log_dir=config.log_dir,
-        )
+        config = dataclasses.replace(config, db_path=args.db)
     return config, watches
 
 
 def _cmd_list(config, watches) -> int:
     db = Database(config.db_path)
     try:
-        db.sync_watches(watches)
-        for watch in db.get_active_watches():
+        for watch in watches:
             snaps = db.get_snapshots(watch)
             targets = watch.sections or tuple(sorted(snaps))
             print(f"{watch.course_id} ({watch.term_id})")
@@ -88,7 +83,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "list":
         configure_logging(config.log_dir)
-        return _cmd_list(config, watches)
+        try:
+            return _cmd_list(config, watches)
+        except Exception:  # noqa: BLE001
+            _log.exception("fatal error")
+            return 2
 
     configure_logging(config.log_dir, verbose=getattr(args, "verbose", False))
     try:

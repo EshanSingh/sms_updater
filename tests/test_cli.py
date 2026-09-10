@@ -1,7 +1,5 @@
 import textwrap
 
-import pytest
-
 from testudo_watch import cli
 from testudo_watch.db import Database
 from testudo_watch.models import SectionSnapshot
@@ -9,11 +7,13 @@ from testudo_watch.models import SectionSnapshot
 
 def write_config(tmp_path, notifier="console"):
     p = tmp_path / "watches.toml"
+    log_dir = (tmp_path / "logs").as_posix()
     p.write_text(
         textwrap.dedent(
             f"""
             poll_interval_seconds = 30
             notifier = "{notifier}"
+            log_dir = "{log_dir}"
             [[watch]]
             course_id = "CMSC351"
             term_id = "202601"

@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from testudo_watch.models import SectionSnapshot
 
 SECTIONS_URL = "https://app.testudo.umd.edu/soc/{term_id}/sections"
-USER_AGENT = "Mozilla/5.0 (compatible; testudo-watch/0.1; +https://github.com/)"
+USER_AGENT = "testudo-watch/0.1 (UMD course seat notifier)"
 REQUEST_TIMEOUT = 10
 
 

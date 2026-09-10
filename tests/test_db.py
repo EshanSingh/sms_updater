@@ -1,9 +1,21 @@
-from testudo_watch.db import Database
+import pytest
+
+from testudo_watch.db import Database, DatabaseError
 from testudo_watch.models import SectionSnapshot, Watch
 
 
 def make_db(tmp_path):
     return Database(tmp_path / "state.db")
+
+
+def test_newer_schema_version_raises_database_error(tmp_path):
+    path = tmp_path / "state.db"
+    db = Database(path)
+    db.connection.execute("PRAGMA user_version = 99")
+    db.connection.commit()
+    db.close()
+    with pytest.raises(DatabaseError):
+        Database(path)
 
 
 def test_migrate_is_idempotent(tmp_path):

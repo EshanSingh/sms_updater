@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import random
 import signal
+import threading
 import time
 from collections.abc import Callable
 
@@ -52,13 +53,20 @@ def _process_watch(config, db, notifier, session, watch, fetch, failure_counts) 
             )
             try:
                 notifier.send(msg)
-            except NotifierError:
+            except NotifierError as exc:
                 _log.error("health alert send failed", exc_info=True)
-            db.record_notification(
-                SectionSnapshot(watch.course_id, watch.term_id, "-", 0, 0, 0),
-                channel=config.notifier,
-                status="health",
-            )
+                db.record_notification(
+                    SectionSnapshot(watch.course_id, watch.term_id, "-", 0, 0, 0),
+                    channel=config.notifier,
+                    status="health-failed",
+                    detail=str(exc),
+                )
+            else:
+                db.record_notification(
+                    SectionSnapshot(watch.course_id, watch.term_id, "-", 0, 0, 0),
+                    channel=config.notifier,
+                    status="health",
+                )
         return
 
     failure_counts[key] = 0
@@ -106,26 +114,27 @@ def run(
     failure_counts: dict[str, int] | None = None,
 ) -> None:
     global _stop
+    _stop = False
     if failure_counts is None:
         failure_counts = {}
 
     previous_handlers = {}
-    if not once:
-        _stop = False
+    if not once and threading.current_thread() is threading.main_thread():
         for sig in (signal.SIGINT, signal.SIGTERM):
             previous_handlers[sig] = signal.getsignal(sig)
             signal.signal(sig, _request_stop)
 
     try:
         while True:
-            for watch in db.get_active_watches():
+            for index, watch in enumerate(db.get_active_watches()):
                 if _stop:
                     return
+                if index > 0:
+                    # polite delay BETWEEN watches, in both once and loop modes
+                    sleep(POLITE_DELAY_SECONDS)
                 _process_watch(
                     config, db, notifier, session, watch, fetch, failure_counts
                 )
-                if not once:
-                    sleep(POLITE_DELAY_SECONDS)
             if once or _stop:
                 return
             sleep(config.poll_interval_seconds + random.uniform(0, JITTER_MAX_SECONDS))

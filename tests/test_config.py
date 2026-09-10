@@ -94,6 +94,13 @@ def test_no_watches_raises_config_error(tmp_path):
         load_config(path)
 
 
+def test_non_utf8_file_raises_config_error(tmp_path):
+    path = tmp_path / "watches.toml"
+    path.write_bytes(b"\xff\xfe\x00bad")
+    with pytest.raises(ConfigError):
+        load_config(path)
+
+
 def test_sections_must_be_list_of_strings(tmp_path):
     path = write(
         tmp_path,
