@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>testudo-watch</title>
+<script src="https://unpkg.com/htmx.org@2.0.3/dist/htmx.min.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 780px; margin: 2rem auto; padding: 0 1rem; }
+  h2 { margin-top: 1.75rem; }
+  .banner { background: #fdf0d5; border: 1px solid #e0b84c; padding: .5rem .75rem; border-radius: 4px; margin: .4rem 0; }
+  .dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; }
+  .dot.open { background: #2e9e4f; }
+  .dot.closed { background: #c0392b; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { text-align: left; padding: .25rem .5rem; border-bottom: 1px solid #eee; }
+  .muted { color: #666; font-size: .85em; }
+  .badge { font-size: .8em; padding: .1rem .4rem; border-radius: 3px; background: #eee; }
+  .badge.sent { background: #d7efdc; }
+  .badge.failed, .badge.health-failed { background: #f6cccc; }
+</style>
+</head>
+<body>
+<h1>testudo-watch</h1>
+<div hx-get="/fragments/status" hx-trigger="every 15s" hx-swap="innerHTML">
+  {% include "_status.html" %}
+</div>
+<h2>Watches</h2>
+<div hx-get="/fragments/watches" hx-trigger="every 15s" hx-swap="innerHTML">
+  {% include "_watches.html" %}
+</div>
+<h2>Recent notifications</h2>
+<div hx-get="/fragments/notifications" hx-trigger="every 15s" hx-swap="innerHTML">
+  {% include "_notifications.html" %}
+</div>
+</body>
+</html>
