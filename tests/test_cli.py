@@ -1,0 +1,76 @@
+import textwrap
+
+from testudo_watch import cli
+from testudo_watch.db import Database
+from testudo_watch.models import SectionSnapshot
+
+
+def write_config(tmp_path, notifier="console"):
+    p = tmp_path / "watches.toml"
+    log_dir = (tmp_path / "logs").as_posix()
+    p.write_text(
+        textwrap.dedent(
+            f"""
+            poll_interval_seconds = 30
+            notifier = "{notifier}"
+            log_dir = "{log_dir}"
+            [[watch]]
+            course_id = "CMSC351"
+            term_id = "202601"
+            sections = ["0101"]
+            """
+        ),
+        encoding="utf-8",
+    )
+    return p
+
+
+def test_main_returns_1_on_config_error(tmp_path, capsys):
+    missing = tmp_path / "nope.toml"
+    rc = cli.main(["run", "--config", str(missing)])
+    assert rc == 1
+    assert "config" in capsys.readouterr().err.lower()
+
+
+def test_check_once_runs_one_pass(tmp_path, monkeypatch):
+    config_path = write_config(tmp_path)
+    db_path = tmp_path / "state.db"
+
+    calls = {}
+
+    def fake_fetch(session, course_id, term_id):
+        calls["hit"] = (course_id, term_id)
+        return [SectionSnapshot(course_id, term_id, "0101", 100, 5, 0)]
+
+    # The CLI forwards its own fetch_sections reference into engine.run,
+    # so patching it here is what takes effect.
+    monkeypatch.setattr("testudo_watch.cli.fetch_sections", fake_fetch)
+
+    rc = cli.main(
+        ["check-once", "--config", str(config_path), "--db", str(db_path)]
+    )
+    assert rc == 0
+    assert calls["hit"] == ("CMSC351", "202601")
+
+    from testudo_watch.models import Watch
+
+    db = Database(db_path)
+    snaps = db.get_snapshots(Watch("CMSC351", "202601", ("0101",)))
+    assert snaps["0101"].open_seats == 5
+    db.close()
+
+
+def test_list_prints_watches_and_last_seen(tmp_path, capsys):
+    config_path = write_config(tmp_path)
+    db_path = tmp_path / "state.db"
+    db = Database(db_path)
+    from testudo_watch.models import Watch
+
+    db.sync_watches([Watch("CMSC351", "202601", ("0101",))])
+    db.upsert_snapshots([SectionSnapshot("CMSC351", "202601", "0101", 100, 2, 0)])
+    db.close()
+
+    rc = cli.main(["list", "--config", str(config_path), "--db", str(db_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "CMSC351" in out and "0101" in out and "2" in out
