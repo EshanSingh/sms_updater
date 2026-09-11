@@ -125,3 +125,87 @@ def test_edit_sections_404_when_absent(tmp_path, fake_probe):
     r = client(tmp_path).post("/watches/NOPE/202601/sections",
                               data={"sections": "0101"})
     assert r.status_code == 404
+
+
+def test_toggle_active_off_then_on(tmp_path, fake_probe):
+    fake_probe(["0101"])
+    c = client(tmp_path)
+    r = c.post("/watches/MATH240/202601/active", data={"active": "0"})
+    assert r.status_code == 200
+    db = Database(tmp_path / "s.db")
+    assert db.watch_row("MATH240", "202601").active is False
+    db.close()
+    c.post("/watches/MATH240/202601/active", data={"active": "1"})
+    db = Database(tmp_path / "s.db")
+    row = db.watch_row("MATH240", "202601")
+    assert row.active is True and row.source == "ui"
+    db.close()
+
+
+def test_toggle_404_when_absent(tmp_path, fake_probe):
+    fake_probe(["0101"])
+    r = client(tmp_path).post("/watches/NOPE/202601/active", data={"active": "0"})
+    assert r.status_code == 404
+
+
+def test_delete_ui_only_watch_hard_deletes(tmp_path, fake_probe):
+    fake_probe(["0101"])
+    r = client(tmp_path).post("/watches/MATH240/202601/delete")  # ui-added, not in file
+    assert r.status_code == 200
+    db = Database(tmp_path / "s.db")
+    assert db.watch_row("MATH240", "202601") is None
+    db.close()
+
+
+def test_delete_file_backed_watch_tombstones(tmp_path, fake_probe):
+    fake_probe(["0101"])
+    c = client(tmp_path, file_watches=[Watch("CMSC351", "202601", ("0101",))])
+    r = c.post("/watches/CMSC351/202601/delete")
+    assert r.status_code == 200
+    assert "watches.toml" in r.text  # explains why it wasn't removed
+    db = Database(tmp_path / "s.db")
+    row = db.watch_row("CMSC351", "202601")
+    assert row is not None and row.active is False
+    db.close()
+
+
+def test_delete_404_when_absent(tmp_path, fake_probe):
+    fake_probe(["0101"])
+    r = client(tmp_path).post("/watches/NOPE/202601/delete")
+    assert r.status_code == 404
+
+
+def test_get_routes_do_not_write(tmp_path, fake_probe):
+    fake_probe(["0101"])
+    c = client(tmp_path)
+    db = Database(tmp_path / "s.db")
+    before = {
+        t: db.connection.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+        for t in ("watches", "section_snapshots", "notifications", "watch_health")
+    }
+    uv_before = db.connection.execute("PRAGMA user_version").fetchone()[0]
+    db.close()
+    for _ in range(3):
+        c.get("/")
+        c.get("/watches")
+        c.get("/fragments/watches")
+    db = Database(tmp_path / "s.db")
+    after = {
+        t: db.connection.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+        for t in ("watches", "section_snapshots", "notifications", "watch_health")
+    }
+    assert after == before
+    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == uv_before
+    db.close()
+
+
+def test_ui_watch_survives_a_sync(tmp_path, fake_probe):
+    fake_probe(["0101", "0201"])
+    c = client(tmp_path)
+    c.post("/watches", data={"course_id": "CMSC330", "term_id": "202601",
+                             "sections": "0101"})
+    db = Database(tmp_path / "s.db")
+    db.sync_watches([Watch("CMSC351", "202601", ("0101",))])  # run's startup sync
+    row = db.watch_row("CMSC330", "202601")
+    assert row is not None and row.active is True and row.source == "ui"
+    db.close()

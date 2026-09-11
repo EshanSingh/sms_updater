@@ -327,4 +327,34 @@ def create_app(config: AppConfig, file_watches=None) -> FastAPI:
         finally:
             db.close()
 
+    @app.post("/watches/{course_id}/{term_id}/active", response_class=HTMLResponse)
+    async def toggle_active(request: Request, course_id: str, term_id: str):
+        form = await request.form()
+        db = Database(config.db_path)
+        try:
+            if db.watch_row(course_id, term_id) is None:
+                return _manage_response(request, db, error="No such watch.", status=404)
+            db.set_watch_active(course_id, term_id, form.get("active") == "1")
+            return _manage_response(request, db)
+        finally:
+            db.close()
+
+    @app.post("/watches/{course_id}/{term_id}/delete", response_class=HTMLResponse)
+    async def delete_watch_route(request: Request, course_id: str, term_id: str):
+        db = Database(config.db_path)
+        try:
+            if db.watch_row(course_id, term_id) is None:
+                return _manage_response(request, db, error="No such watch.", status=404)
+            if (course_id, term_id) in {(w.course_id, w.term_id) for w in file_watches}:
+                db.set_watch_active(course_id, term_id, False)
+                return _manage_response(
+                    request, db,
+                    notice=f"{course_id} is still in watches.toml — disabled, not "
+                    f"deleted. Remove it from the file to delete it permanently.",
+                )
+            db.delete_watch(course_id, term_id)
+            return _manage_response(request, db, notice=f"Deleted {course_id} {term_id}.")
+        finally:
+            db.close()
+
     return app
