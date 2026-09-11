@@ -114,3 +114,18 @@ def test_newer_schema_database_shows_guidance(tmp_path):
     client = TestClient(create_app(cfg(str(p)), []))
     r = client.get("/")
     assert r.status_code == 200 and "testudo-watch" in r.text  # guidance page, not 500
+
+
+def test_dashboard_returns_guidance_on_mid_query_error(tmp_path, monkeypatch):
+    from testudo_watch import web
+
+    def boom(db, config, *, now):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(web, "build_status_view", boom)
+    db = Database(tmp_path / "s.db")
+    db.close()
+    client = TestClient(create_app(cfg(tmp_path / "s.db"), []))
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "testudo-watch run" in r.text

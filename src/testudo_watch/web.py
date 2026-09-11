@@ -302,21 +302,17 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
     def _load_views() -> dict | None:
         now = datetime.now(timezone.utc)
         try:
-            db = Database(config.db_path)
-        except (sqlite3.DatabaseError, SchemaError) as exc:
-            _log.warning("dashboard could not open %s: %s", config.db_path, exc)
-            return None
-        try:
-            return {
-                "status": build_status_view(db, config, now=now),
-                "watches": build_watches_view(db, now=now),
-                "notifications": build_notifications_view(db, now=now),
-            }
+            with _open_db(config) as db:
+                if db is None:
+                    return None
+                return {
+                    "status": build_status_view(db, config, now=now),
+                    "watches": build_watches_view(db, now=now),
+                    "notifications": build_notifications_view(db, now=now),
+                }
         except sqlite3.DatabaseError as exc:
             _log.warning("dashboard could not read %s: %s", config.db_path, exc)
             return None
-        finally:
-            db.close()
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard(request: Request):
@@ -354,10 +350,14 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
 
     @app.get("/watches", response_class=HTMLResponse)
     def watches_page(request: Request):
-        with _open_db(config) as db:
-            if db is None:
-                return _TEMPLATES.TemplateResponse(request, "no_data.html", {})
-            view = build_manage_view(db, file_watches)
+        try:
+            with _open_db(config) as db:
+                if db is None:
+                    return _TEMPLATES.TemplateResponse(request, "no_data.html", {})
+                view = build_manage_view(db, file_watches)
+        except sqlite3.DatabaseError as exc:
+            _log.warning("could not read %s: %s", config.db_path, exc)
+            return _TEMPLATES.TemplateResponse(request, "no_data.html", {})
         return _TEMPLATES.TemplateResponse(
             request, "manage.html", {"view": view, "error": None, "notice": None}
         )
@@ -377,28 +377,30 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
                 '<p class="banner">Cross-origin request rejected.</p>', status_code=403
             )
         form = await request.form()
-        with _open_db(config) as db:
-            if db is None:
-                return HTMLResponse(
-                    '<p class="banner">Database is busy or unreadable — try again.</p>',
-                    status_code=503,
-                )
-            try:
-                course_id, term_id, sections = _validate_and_probe(
-                    form.get("course_id", ""),
-                    form.get("term_id", ""),
-                    _parse_sections(form.get("sections", "")),
-                )
-            except ProbeError as exc:
-                return _manage_response(request, db, error=str(exc), status=422)
-            try:
+        try:
+            with _open_db(config) as db:
+                if db is None:
+                    return HTMLResponse(
+                        '<p class="banner">Database is busy or unreadable — try again.</p>',
+                        status_code=503,
+                    )
+                try:
+                    course_id, term_id, sections = _validate_and_probe(
+                        form.get("course_id", ""),
+                        form.get("term_id", ""),
+                        _parse_sections(form.get("sections", "")),
+                    )
+                except ProbeError as exc:
+                    return _manage_response(request, db, error=str(exc), status=422)
                 db.add_or_replace_ui_watch(course_id, term_id, sections)
-            except sqlite3.OperationalError as exc:
-                _log.warning("write failed for %s %s: %s", course_id, term_id, exc)
-                return HTMLResponse(
-                    '<p class="banner">Database is busy — try again.</p>', status_code=503
+                return _manage_response(
+                    request, db, notice=f"Watching {course_id} {term_id}."
                 )
-            return _manage_response(request, db, notice=f"Watching {course_id} {term_id}.")
+        except sqlite3.DatabaseError as exc:
+            _log.warning("write failed: %s", exc)
+            return HTMLResponse(
+                '<p class="banner">Database is busy — try again.</p>', status_code=503
+            )
 
     @app.post("/watches/{course_id}/{term_id}/sections", response_class=HTMLResponse)
     async def edit_sections(request: Request, course_id: str, term_id: str):
@@ -407,31 +409,29 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
                 '<p class="banner">Cross-origin request rejected.</p>', status_code=403
             )
         form = await request.form()
-        with _open_db(config) as db:
-            if db is None:
-                return HTMLResponse(
-                    '<p class="banner">Database is busy or unreadable — try again.</p>',
-                    status_code=503,
-                )
-            row = db.watch_row(course_id, term_id)
-            if row is None:
-                return _manage_response(request, db, error="No such watch.", status=404)
-            try:
-                _, _, sections = _validate_and_probe(
-                    row.course_id, row.term_id, _parse_sections(form.get("sections", ""))
-                )
-            except ProbeError as exc:
-                return _manage_response(request, db, error=str(exc), status=422)
-            try:
+        try:
+            with _open_db(config) as db:
+                if db is None:
+                    return HTMLResponse(
+                        '<p class="banner">Database is busy or unreadable — try again.</p>',
+                        status_code=503,
+                    )
+                row = db.watch_row(course_id, term_id)
+                if row is None:
+                    return _manage_response(request, db, error="No such watch.", status=404)
+                try:
+                    _, _, sections = _validate_and_probe(
+                        row.course_id, row.term_id, _parse_sections(form.get("sections", ""))
+                    )
+                except ProbeError as exc:
+                    return _manage_response(request, db, error=str(exc), status=422)
                 db.set_watch_sections(row.course_id, row.term_id, sections)
-            except sqlite3.OperationalError as exc:
-                _log.warning(
-                    "write failed for %s %s: %s", row.course_id, row.term_id, exc
-                )
-                return HTMLResponse(
-                    '<p class="banner">Database is busy — try again.</p>', status_code=503
-                )
-            return _manage_response(request, db, notice="Sections updated.")
+                return _manage_response(request, db, notice="Sections updated.")
+        except sqlite3.DatabaseError as exc:
+            _log.warning("write failed: %s", exc)
+            return HTMLResponse(
+                '<p class="banner">Database is busy — try again.</p>', status_code=503
+            )
 
     @app.post("/watches/{course_id}/{term_id}/active", response_class=HTMLResponse)
     async def toggle_active(request: Request, course_id: str, term_id: str):
@@ -440,25 +440,23 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
                 '<p class="banner">Cross-origin request rejected.</p>', status_code=403
             )
         form = await request.form()
-        with _open_db(config) as db:
-            if db is None:
-                return HTMLResponse(
-                    '<p class="banner">Database is busy or unreadable — try again.</p>',
-                    status_code=503,
-                )
-            row = db.watch_row(course_id, term_id)
-            if row is None:
-                return _manage_response(request, db, error="No such watch.", status=404)
-            try:
+        try:
+            with _open_db(config) as db:
+                if db is None:
+                    return HTMLResponse(
+                        '<p class="banner">Database is busy or unreadable — try again.</p>',
+                        status_code=503,
+                    )
+                row = db.watch_row(course_id, term_id)
+                if row is None:
+                    return _manage_response(request, db, error="No such watch.", status=404)
                 db.set_watch_active(row.course_id, row.term_id, form.get("active") == "1")
-            except sqlite3.OperationalError as exc:
-                _log.warning(
-                    "write failed for %s %s: %s", row.course_id, row.term_id, exc
-                )
-                return HTMLResponse(
-                    '<p class="banner">Database is busy — try again.</p>', status_code=503
-                )
-            return _manage_response(request, db)
+                return _manage_response(request, db)
+        except sqlite3.DatabaseError as exc:
+            _log.warning("write failed: %s", exc)
+            return HTMLResponse(
+                '<p class="banner">Database is busy — try again.</p>', status_code=503
+            )
 
     @app.post("/watches/{course_id}/{term_id}/delete", response_class=HTMLResponse)
     async def delete_watch_route(request: Request, course_id: str, term_id: str):
@@ -466,44 +464,33 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
             return HTMLResponse(
                 '<p class="banner">Cross-origin request rejected.</p>', status_code=403
             )
-        with _open_db(config) as db:
-            if db is None:
-                return HTMLResponse(
-                    '<p class="banner">Database is busy or unreadable — try again.</p>',
-                    status_code=503,
-                )
-            row = db.watch_row(course_id, term_id)
-            if row is None:
-                return _manage_response(request, db, error="No such watch.", status=404)
-            if (row.course_id, row.term_id) in {
-                (w.course_id, w.term_id) for w in file_watches
-            }:
-                try:
-                    db.set_watch_active(row.course_id, row.term_id, False)
-                except sqlite3.OperationalError as exc:
-                    _log.warning(
-                        "write failed for %s %s: %s", row.course_id, row.term_id, exc
-                    )
+        try:
+            with _open_db(config) as db:
+                if db is None:
                     return HTMLResponse(
-                        '<p class="banner">Database is busy — try again.</p>',
+                        '<p class="banner">Database is busy or unreadable — try again.</p>',
                         status_code=503,
                     )
-                return _manage_response(
-                    request, db,
-                    notice=f"{row.course_id} is still in watches.toml — disabled, not "
-                    f"deleted. Remove it from the file to delete it permanently.",
-                )
-            try:
+                row = db.watch_row(course_id, term_id)
+                if row is None:
+                    return _manage_response(request, db, error="No such watch.", status=404)
+                if (row.course_id, row.term_id) in {
+                    (w.course_id, w.term_id) for w in file_watches
+                }:
+                    db.set_watch_active(row.course_id, row.term_id, False)
+                    return _manage_response(
+                        request, db,
+                        notice=f"{row.course_id} is still in watches.toml — disabled, not "
+                        f"deleted. Remove it from the file to delete it permanently.",
+                    )
                 db.delete_watch(row.course_id, row.term_id)
-            except sqlite3.OperationalError as exc:
-                _log.warning(
-                    "write failed for %s %s: %s", row.course_id, row.term_id, exc
+                return _manage_response(
+                    request, db, notice=f"Deleted {row.course_id} {row.term_id}."
                 )
-                return HTMLResponse(
-                    '<p class="banner">Database is busy — try again.</p>', status_code=503
-                )
-            return _manage_response(
-                request, db, notice=f"Deleted {row.course_id} {row.term_id}."
+        except sqlite3.DatabaseError as exc:
+            _log.warning("write failed: %s", exc)
+            return HTMLResponse(
+                '<p class="banner">Database is busy — try again.</p>', status_code=503
             )
 
     @app.get("/notifications", response_class=HTMLResponse)
@@ -522,17 +509,21 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
         if page < 1:
             page = 1
         page = min(page, 1_000_000)
-        with _open_db(config) as db:
-            if db is None:
-                return _TEMPLATES.TemplateResponse(request, "no_data.html", {})
-            view = build_history_view(
-                db,
-                course_id=course_id,
-                since=since,
-                until=until,
-                page=page,
-                now=datetime.now(timezone.utc),
-            )
+        try:
+            with _open_db(config) as db:
+                if db is None:
+                    return _TEMPLATES.TemplateResponse(request, "no_data.html", {})
+                view = build_history_view(
+                    db,
+                    course_id=course_id,
+                    since=since,
+                    until=until,
+                    page=page,
+                    now=datetime.now(timezone.utc),
+                )
+        except sqlite3.DatabaseError as exc:
+            _log.warning("could not read %s: %s", config.db_path, exc)
+            return _TEMPLATES.TemplateResponse(request, "no_data.html", {})
         return _TEMPLATES.TemplateResponse(
             request, "notifications.html", {"view": view}
         )

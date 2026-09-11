@@ -277,3 +277,27 @@ def test_ui_watch_survives_a_sync(tmp_path, fake_probe):
     row = db.watch_row("CMSC330", "202601")
     assert row is not None and row.active is True and row.source == "ui"
     db.close()
+
+
+def test_watches_page_returns_guidance_on_mid_query_error(tmp_path, monkeypatch):
+    def boom(db, file_watches):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(web, "build_manage_view", boom)
+    r = client(tmp_path).get("/watches")
+    assert r.status_code == 200
+    assert "testudo-watch run" in r.text
+
+
+def test_add_watch_returns_503_on_mid_query_write_error(tmp_path, monkeypatch, fake_probe):
+    fake_probe(["0101"])
+    c = client(tmp_path)
+
+    def boom(self, course_id, term_id, sections):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(Database, "add_or_replace_ui_watch", boom)
+    r = c.post(
+        "/watches", data={"course_id": "CMSC330", "term_id": "202601", "sections": ""}
+    )
+    assert r.status_code == 503

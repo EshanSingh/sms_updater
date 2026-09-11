@@ -1,5 +1,8 @@
+import sqlite3
+
 from fastapi.testclient import TestClient
 
+from testudo_watch import web
 from testudo_watch.config import AppConfig
 from testudo_watch.db import Database
 from testudo_watch.web import create_app
@@ -144,3 +147,14 @@ def test_dashboard_fragment_links_to_full_history(tmp_path):
     c = client(tmp_path, [("CMSC351", "0101", 1, "2026-09-01 10:00:00")])
     r = c.get("/fragments/notifications")
     assert 'href="/notifications"' in r.text
+
+
+def test_notifications_page_returns_guidance_on_mid_query_error(tmp_path, monkeypatch):
+    def boom(db, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(web, "build_history_view", boom)
+    c = client(tmp_path, [("CMSC351", "0101", 1, "2026-09-01 10:00:00")])
+    r = c.get("/notifications")
+    assert r.status_code == 200
+    assert "testudo-watch run" in r.text
