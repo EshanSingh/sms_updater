@@ -148,9 +148,24 @@ class Database:
         self.connection.commit()
 
     def sync_watches(self, watches: list[Watch]) -> None:
-        keep = {(w.course_id, w.term_id) for w in watches}
+        keep: set[tuple[str, str]] = set()
         with self.connection:
             for w in watches:
+                # Match an existing row case-insensitively so a course_id
+                # normalization change (e.g. config.py upper-casing) doesn't
+                # create a duplicate row for a course a legacy-cased row
+                # already tracks — that would orphan its snapshot/health/
+                # notification history. Reuse the row's stored casing rather
+                # than renaming it, since related tables key off the literal
+                # string, not a real foreign key.
+                existing = self.connection.execute(
+                    "SELECT course_id, term_id FROM watches "
+                    "WHERE UPPER(course_id) = UPPER(?) AND term_id = ?",
+                    (w.course_id, w.term_id),
+                ).fetchone()
+                course_id = existing["course_id"] if existing else w.course_id
+                term_id = existing["term_id"] if existing else w.term_id
+                keep.add((course_id, term_id))
                 self.connection.execute(
                     "INSERT INTO watches "
                     "(course_id, term_id, sections_csv, active, source) "
@@ -158,7 +173,7 @@ class Database:
                     "ON CONFLICT(course_id, term_id) DO UPDATE SET "
                     "sections_csv = excluded.sections_csv, active = 1 "
                     "WHERE watches.source = 'file'",
-                    (w.course_id, w.term_id, ",".join(w.sections)),
+                    (course_id, term_id, ",".join(w.sections)),
                 )
             for row in self.connection.execute(
                 "SELECT course_id, term_id FROM watches "
