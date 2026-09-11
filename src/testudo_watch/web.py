@@ -215,8 +215,8 @@ def build_manage_view(db: Database, file_watches) -> ManageView:
 _TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
-def create_app(config: AppConfig, file_watches=None) -> FastAPI:
-    file_watches = list(file_watches or [])
+def create_app(config: AppConfig, file_watches) -> FastAPI:
+    file_watches = list(file_watches)
     app = FastAPI(title="testudo-watch")
 
     def _load_views() -> dict | None:

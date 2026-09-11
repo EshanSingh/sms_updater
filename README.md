@@ -60,6 +60,18 @@ bind address with `--host` / `--port`.
 The dashboard reflects what the watcher last wrote to the database — editing
 `watches.toml` has no effect until `testudo-watch run` is restarted.
 
+### Managing watches from the browser
+
+`http://127.0.0.1:8477/watches` lists every watch and lets you add, edit the
+section list, enable/disable, or delete one. Adds and edits are checked against
+Testudo live — a bad course id or term is rejected on the spot. Changes take
+effect on the watcher's next poll with no restart.
+
+Watches you edit here are marked UI-owned and are **not** overwritten or removed
+when `testudo-watch run` re-reads `watches.toml` on startup. Deleting a watch
+that is still listed in `watches.toml` disables it instead (remove it from the
+file to delete it for good).
+
 ## Test
 
 ```bash
