@@ -39,4 +39,4 @@ def test_dashboard_links_to_manage(tmp_path):
     db = Database(tmp_path / "s.db")
     db.close()
     r = TestClient(create_app(cfg(tmp_path / "s.db"), [])).get("/")
-    assert '/watches' in r.text
+    assert '<a href="/watches">' in r.text
