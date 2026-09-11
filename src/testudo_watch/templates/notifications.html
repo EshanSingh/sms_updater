@@ -29,9 +29,7 @@
   <select name="course">
     <option value="">All courses</option>
     {% for c in view.courses %}
-    {% if not view.course_id or c == view.course_id %}
     <option value="{{ c }}"{% if c == view.course_id %} selected{% endif %}>{{ c }}</option>
-    {% endif %}
     {% endfor %}
   </select>
   <input type="date" name="since" value="{{ view.since or '' }}">

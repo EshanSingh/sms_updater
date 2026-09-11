@@ -2,7 +2,6 @@ from fastapi.testclient import TestClient
 
 from testudo_watch.config import AppConfig
 from testudo_watch.db import Database
-from testudo_watch.models import Watch
 from testudo_watch.web import create_app
 
 
@@ -57,7 +56,7 @@ def test_notifications_page_filters_by_course(tmp_path):
     )
     r = c.get("/notifications?course=CMSC351")
     assert r.status_code == 200
-    assert "CMSC351" in r.text and "MATH240" not in r.text
+    assert "0101" in r.text and "0111" not in r.text
 
 
 def test_notifications_page_filters_by_date_range(tmp_path):
