@@ -134,6 +134,8 @@ class Database:
                 f"database file {self.path} was written by a newer testudo-watch "
                 f"(schema v{found} > v{SCHEMA_VERSION}); upgrade the package"
             )
+        if found == SCHEMA_VERSION:
+            return  # already fully migrated — no write needed
         self.connection.executescript(_SCHEMA)
         cols = {
             r[1] for r in self.connection.execute("PRAGMA table_info(watches)")
@@ -165,7 +167,7 @@ class Database:
                 if (row["course_id"], row["term_id"]) not in keep:
                     self.connection.execute(
                         "UPDATE watches SET active = 0 "
-                        "WHERE course_id = ? AND term_id = ?",
+                        "WHERE course_id = ? AND term_id = ? AND source = 'file'",
                         (row["course_id"], row["term_id"]),
                     )
 

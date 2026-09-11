@@ -21,6 +21,7 @@
   <button hx-post="/watches/{{ r.course_id }}/{{ r.term_id }}/active"
           hx-vals='{"active": "0"}' hx-target="#manage" hx-swap="innerHTML">Disable</button>
   <button hx-post="/watches/{{ r.course_id }}/{{ r.term_id }}/delete"
+          hx-confirm="Delete this watch? This also clears its seat-count history."
           hx-target="#manage" hx-swap="innerHTML">Delete</button>
 </div>
 {% endfor %}
@@ -33,6 +34,7 @@
   <button hx-post="/watches/{{ r.course_id }}/{{ r.term_id }}/active"
           hx-vals='{"active": "1"}' hx-target="#manage" hx-swap="innerHTML">Enable</button>
   <button hx-post="/watches/{{ r.course_id }}/{{ r.term_id }}/delete"
+          hx-confirm="Delete this watch? This also clears its seat-count history."
           hx-target="#manage" hx-swap="innerHTML">Delete</button>
 </div>
 {% endfor %}

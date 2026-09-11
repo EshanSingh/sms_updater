@@ -35,6 +35,17 @@ def test_migrate_is_idempotent(tmp_path):
     db2.close()
 
 
+def test_migrate_is_a_true_no_op_when_already_current(tmp_path):
+    path = tmp_path / "s.db"
+    Database(path).close()  # first open: full migration
+    reader = sqlite3.connect(str(path))
+    before = reader.execute("PRAGMA data_version").fetchone()[0]
+    Database(path).close()  # second open: must NOT write
+    after = reader.execute("PRAGMA data_version").fetchone()[0]
+    assert after == before
+    reader.close()
+
+
 def test_sync_and_get_active_watches(tmp_path):
     db = make_db(tmp_path)
     db.sync_watches(

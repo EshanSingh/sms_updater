@@ -185,10 +185,15 @@ def test_get_routes_do_not_write(tmp_path, fake_probe):
     }
     uv_before = db.connection.execute("PRAGMA user_version").fetchone()[0]
     db.close()
+    reader = sqlite3.connect(str(tmp_path / "s.db"))
+    data_version_before = reader.execute("PRAGMA data_version").fetchone()[0]
     for _ in range(3):
         c.get("/")
         c.get("/watches")
         c.get("/fragments/watches")
+    data_version_after = reader.execute("PRAGMA data_version").fetchone()[0]
+    reader.close()
+    assert data_version_after == data_version_before
     db = Database(tmp_path / "s.db")
     after = {
         t: db.connection.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
@@ -196,6 +201,69 @@ def test_get_routes_do_not_write(tmp_path, fake_probe):
     }
     assert after == before
     assert db.connection.execute("PRAGMA user_version").fetchone()[0] == uv_before
+    db.close()
+
+
+def test_watches_page_shows_guidance_on_corrupt_db(tmp_path):
+    p = tmp_path / "v99.db"
+    con = sqlite3.connect(str(p))
+    con.execute("PRAGMA user_version = 99")
+    con.commit()
+    con.close()
+    c = TestClient(create_app(cfg(str(p)), []))
+    r = c.get("/watches")
+    assert r.status_code == 200
+    assert "testudo-watch run" in r.text
+
+
+def test_add_watch_returns_503_on_corrupt_db(tmp_path, fake_probe):
+    fake_probe(["0101"])
+    p = tmp_path / "v99.db"
+    con = sqlite3.connect(str(p))
+    con.execute("PRAGMA user_version = 99")
+    con.commit()
+    con.close()
+    c = TestClient(create_app(cfg(str(p)), []))
+    r = c.post("/watches", data={"course_id": "CMSC351", "term_id": "202601", "sections": ""})
+    assert r.status_code == 503
+
+
+def test_add_watch_rejects_cross_origin(tmp_path, fake_probe):
+    fake_probe(["0101"])
+    r = client(tmp_path).post(
+        "/watches",
+        data={"course_id": "CMSC330", "term_id": "202601", "sections": ""},
+        headers={"Origin": "https://evil.example"},
+    )
+    assert r.status_code == 403
+
+
+def test_add_watch_allows_no_origin_header(tmp_path, fake_probe):
+    fake_probe(["0101"])
+    r = client(tmp_path).post(
+        "/watches", data={"course_id": "CMSC330", "term_id": "202601", "sections": ""}
+    )
+    assert r.status_code == 200  # unchanged: TestClient sends no Origin by default
+
+
+def test_edit_sections_on_legacy_lowercase_row_updates_in_place(tmp_path, fake_probe):
+    fake_probe(["0101", "0202"])
+    db = Database(tmp_path / "s.db")
+    db.connection.execute(
+        "INSERT INTO watches (course_id, term_id, sections_csv, active, source) "
+        "VALUES ('cmsc999', '202601', '0101', 1, 'file')"
+    )
+    db.connection.commit()
+    db.close()
+    c = TestClient(create_app(cfg(tmp_path / "s.db"), []))
+    r = c.post("/watches/cmsc999/202601/sections", data={"sections": "0101, 0202"})
+    assert r.status_code == 200
+    db = Database(tmp_path / "s.db")
+    rows = db.connection.execute(
+        "SELECT course_id, sections_csv FROM watches"
+    ).fetchall()
+    assert len(rows) == 1  # no duplicate row created
+    assert rows[0]["sections_csv"] == "0101,0202"
     db.close()
 
 
