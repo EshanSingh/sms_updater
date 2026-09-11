@@ -49,6 +49,15 @@ class NotificationRow:
     detail: str
 
 
+@dataclass(frozen=True)
+class WatchRow:
+    course_id: str
+    term_id: str
+    sections: tuple[str, ...]
+    active: bool
+    source: str
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS watches (
     course_id    TEXT NOT NULL,
@@ -171,6 +180,83 @@ class Database:
             sections = tuple(s for s in csv.split(",") if s) if csv else ()
             result.append(Watch(row["course_id"], row["term_id"], sections))
         return result
+
+    @staticmethod
+    def _sections_tuple(csv: str) -> tuple[str, ...]:
+        return tuple(s for s in csv.split(",") if s) if csv else ()
+
+    def get_all_watches(self) -> list[WatchRow]:
+        rows = self.connection.execute(
+            "SELECT course_id, term_id, sections_csv, active, source "
+            "FROM watches ORDER BY rowid"
+        ).fetchall()
+        return [
+            WatchRow(
+                r["course_id"],
+                r["term_id"],
+                self._sections_tuple(r["sections_csv"]),
+                bool(r["active"]),
+                r["source"],
+            )
+            for r in rows
+        ]
+
+    def watch_row(self, course_id: str, term_id: str) -> WatchRow | None:
+        r = self.connection.execute(
+            "SELECT course_id, term_id, sections_csv, active, source FROM watches "
+            "WHERE course_id = ? AND term_id = ?",
+            (course_id, term_id),
+        ).fetchone()
+        if r is None:
+            return None
+        return WatchRow(
+            r["course_id"],
+            r["term_id"],
+            self._sections_tuple(r["sections_csv"]),
+            bool(r["active"]),
+            r["source"],
+        )
+
+    def add_or_replace_ui_watch(
+        self, course_id: str, term_id: str, sections: tuple[str, ...]
+    ) -> None:
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO watches "
+                "(course_id, term_id, sections_csv, active, source) "
+                "VALUES (?, ?, ?, 1, 'ui') "
+                "ON CONFLICT(course_id, term_id) DO UPDATE SET "
+                "sections_csv = excluded.sections_csv, active = 1, source = 'ui'",
+                (course_id, term_id, ",".join(sections)),
+            )
+
+    def set_watch_sections(
+        self, course_id: str, term_id: str, sections: tuple[str, ...]
+    ) -> None:
+        with self.connection:
+            self.connection.execute(
+                "UPDATE watches SET sections_csv = ?, source = 'ui' "
+                "WHERE course_id = ? AND term_id = ?",
+                (",".join(sections), course_id, term_id),
+            )
+
+    def set_watch_active(
+        self, course_id: str, term_id: str, active: bool
+    ) -> None:
+        with self.connection:
+            self.connection.execute(
+                "UPDATE watches SET active = ?, source = 'ui' "
+                "WHERE course_id = ? AND term_id = ?",
+                (1 if active else 0, course_id, term_id),
+            )
+
+    def delete_watch(self, course_id: str, term_id: str) -> None:
+        with self.connection:
+            for table in ("watches", "watch_health", "section_snapshots"):
+                self.connection.execute(
+                    f"DELETE FROM {table} WHERE course_id = ? AND term_id = ?",
+                    (course_id, term_id),
+                )
 
     def get_snapshots(self, watch: Watch) -> dict[str, SectionSnapshot]:
         rows = self.connection.execute(

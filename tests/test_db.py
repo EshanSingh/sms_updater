@@ -9,6 +9,7 @@ from testudo_watch.db import (
     NotificationRow,
     SectionRow,
     WatchHealth,
+    WatchRow,
 )
 from testudo_watch.models import SectionSnapshot, Watch
 
@@ -309,4 +310,81 @@ def test_sync_watches_does_not_reactivate_ui_disabled_row(tmp_path):
         "SELECT active, source FROM watches WHERE course_id = 'CMSC351'"
     ).fetchone()
     assert (row["active"], row["source"]) == (0, "ui")
+    db.close()
+
+
+def test_add_or_replace_ui_watch_sets_ui_source(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.add_or_replace_ui_watch("CMSC351", "202601", ("0101", "0201"))
+    r = db.watch_row("CMSC351", "202601")
+    assert r == WatchRow("CMSC351", "202601", ("0101", "0201"), True, "ui")
+    # re-add replaces the section list, stays ui/active
+    db.add_or_replace_ui_watch("CMSC351", "202601", ("0301",))
+    assert db.watch_row("CMSC351", "202601").sections == ("0301",)
+    db.close()
+
+
+def test_add_or_replace_reactivates_a_disabled_row(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.sync_watches([Watch("CMSC351", "202601", ("0101",))])
+    db.set_watch_active("CMSC351", "202601", False)
+    db.add_or_replace_ui_watch("CMSC351", "202601", ("0101", "0201"))
+    r = db.watch_row("CMSC351", "202601")
+    assert (r.active, r.source, r.sections) == (True, "ui", ("0101", "0201"))
+    db.close()
+
+
+def test_set_watch_sections_flips_source_to_ui(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.sync_watches([Watch("CMSC351", "202601", ("0101",))])
+    db.set_watch_sections("CMSC351", "202601", ("0101", "0202"))
+    r = db.watch_row("CMSC351", "202601")
+    assert r.sections == ("0101", "0202") and r.source == "ui"
+    db.close()
+
+
+def test_set_watch_active_flips_source_to_ui(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.sync_watches([Watch("CMSC351", "202601", ())])
+    db.set_watch_active("CMSC351", "202601", False)
+    r = db.watch_row("CMSC351", "202601")
+    assert r.active is False and r.source == "ui"
+    db.set_watch_active("CMSC351", "202601", True)
+    assert db.watch_row("CMSC351", "202601").active is True
+    db.close()
+
+
+def test_delete_watch_removes_row_and_related(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.add_or_replace_ui_watch("CMSC351", "202601", ())
+    db.upsert_watch_health(Watch("CMSC351", "202601", ()), ok=False, error="x")
+    db.upsert_snapshots(
+        [SectionSnapshot("CMSC351", "202601", "0101", 10, 1, 0)]
+    )
+    db.delete_watch("CMSC351", "202601")
+    assert db.watch_row("CMSC351", "202601") is None
+    assert db.get_watch_health() == {}
+    assert (
+        db.connection.execute("SELECT COUNT(*) FROM section_snapshots").fetchone()[0]
+        == 0
+    )
+    db.close()
+
+
+def test_get_all_watches_includes_inactive_in_rowid_order(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.add_or_replace_ui_watch("CMSC351", "202601", ("0101",))
+    db.add_or_replace_ui_watch("MATH240", "202601", ())
+    db.set_watch_active("CMSC351", "202601", False)
+    rows = db.get_all_watches()
+    assert [(r.course_id, r.active) for r in rows] == [
+        ("CMSC351", False),
+        ("MATH240", True),
+    ]
+    db.close()
+
+
+def test_watch_row_none_when_absent(tmp_path):
+    db = Database(tmp_path / "s.db")
+    assert db.watch_row("NONE", "000000") is None
     db.close()
