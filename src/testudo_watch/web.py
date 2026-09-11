@@ -1,22 +1,67 @@
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+import requests
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from testudo_watch.config import AppConfig
 from testudo_watch.db import Database, DatabaseError as SchemaError
+from testudo_watch.scraper import ScrapeError, build_session, fetch_sections
 from testudo_watch.web_time import humanize_age, parse_db_utc
 
 _log = logging.getLogger("testudo_watch.web")
 
 STALE_GRACE_SECONDS = 20
+
+_COURSE_RE = re.compile(r"^[A-Z]{4}\d{3}[A-Z]?$")
+_TERM_RE = re.compile(r"^\d{6}$")
+
+
+class ProbeError(Exception):
+    """A watch could not be validated against Testudo."""
+
+
+def _parse_sections(raw: str) -> tuple[str, ...]:
+    return tuple(s for s in re.split(r"[,\s]+", raw.strip()) if s)
+
+
+def _probe(course_id: str, term_id: str) -> list[str]:
+    session = build_session()
+    try:
+        snaps = fetch_sections(session, course_id, term_id)
+    except (ScrapeError, requests.RequestException) as exc:
+        raise ProbeError(
+            f"Testudo returned no sections for {course_id} in {term_id} "
+            f"— check the course id and term ({exc})"
+        ) from exc
+    finally:
+        session.close()
+    return [s.section_id for s in snaps]
+
+
+def _validate_and_probe(course_id: str, term_id: str, sections: tuple[str, ...]):
+    """Returns normalized (course_id, sections). Raises ProbeError on any failure."""
+    course_id = course_id.strip().upper()
+    term_id = term_id.strip()
+    if not _COURSE_RE.match(course_id):
+        raise ProbeError(f"course id {course_id!r} looks wrong (expected e.g. CMSC351)")
+    if not _TERM_RE.match(term_id):
+        raise ProbeError(f"term id {term_id!r} must be 6 digits (e.g. 202601)")
+    available = _probe(course_id, term_id)
+    missing = [s for s in sections if s not in available]
+    if missing:
+        raise ProbeError(
+            f"section {', '.join(missing)} not found. Available: {', '.join(sorted(available))}"
+        )
+    return course_id, term_id, sections
 
 
 @dataclass(frozen=True)
@@ -237,5 +282,49 @@ def create_app(config: AppConfig, file_watches=None) -> FastAPI:
         return _TEMPLATES.TemplateResponse(
             request, "manage.html", {"view": view, "error": None, "notice": None}
         )
+
+    def _manage_response(request: Request, db, *, error=None, notice=None, status=200):
+        view = build_manage_view(db, file_watches)
+        return _TEMPLATES.TemplateResponse(
+            request, "_manage.html",
+            {"view": view, "error": error, "notice": notice},
+            status_code=status,
+        )
+
+    @app.post("/watches", response_class=HTMLResponse)
+    async def add_watch(request: Request):
+        form = await request.form()
+        db = Database(config.db_path)
+        try:
+            try:
+                course_id, term_id, sections = _validate_and_probe(
+                    form.get("course_id", ""),
+                    form.get("term_id", ""),
+                    _parse_sections(form.get("sections", "")),
+                )
+            except ProbeError as exc:
+                return _manage_response(request, db, error=str(exc), status=422)
+            db.add_or_replace_ui_watch(course_id, term_id, sections)
+            return _manage_response(request, db, notice=f"Watching {course_id} {term_id}.")
+        finally:
+            db.close()
+
+    @app.post("/watches/{course_id}/{term_id}/sections", response_class=HTMLResponse)
+    async def edit_sections(request: Request, course_id: str, term_id: str):
+        form = await request.form()
+        db = Database(config.db_path)
+        try:
+            if db.watch_row(course_id, term_id) is None:
+                return _manage_response(request, db, error="No such watch.", status=404)
+            try:
+                course_id, term_id, sections = _validate_and_probe(
+                    course_id, term_id, _parse_sections(form.get("sections", ""))
+                )
+            except ProbeError as exc:
+                return _manage_response(request, db, error=str(exc), status=422)
+            db.set_watch_sections(course_id, term_id, sections)
+            return _manage_response(request, db, notice="Sections updated.")
+        finally:
+            db.close()
 
     return app
