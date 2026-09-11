@@ -511,9 +511,9 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
         course_id = request.query_params.get("course") or None
         since = request.query_params.get("since") or None
         until = request.query_params.get("until") or None
-        if since and not re.match(r"^\d{4}-\d{2}-\d{2}$", since):
+        if since and not re.match(r"^\d{4}-\d{2}-\d{2}\Z", since):
             since = None
-        if until and not re.match(r"^\d{4}-\d{2}-\d{2}$", until):
+        if until and not re.match(r"^\d{4}-\d{2}-\d{2}\Z", until):
             until = None
         try:
             page = int(request.query_params.get("page", "1"))
@@ -521,6 +521,7 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
             page = 1
         if page < 1:
             page = 1
+        page = min(page, 1_000_000)
         with _open_db(config) as db:
             if db is None:
                 return _TEMPLATES.TemplateResponse(request, "no_data.html", {})

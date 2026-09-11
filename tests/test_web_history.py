@@ -90,7 +90,7 @@ def test_notifications_page_paginates_with_working_links(tmp_path):
 
 def test_notifications_page_malformed_page_param_defaults_to_one(tmp_path):
     c = client(tmp_path, [("CMSC351", "0101", 1, "2026-09-01 10:00:00")])
-    for bad in ("abc", "0", "-5"):
+    for bad in ("abc", "0", "-5", "9223372036854775807"):
         r = c.get(f"/notifications?page={bad}")
         assert r.status_code == 200
         assert "CMSC351" in r.text
@@ -108,6 +108,29 @@ def test_notifications_page_empty_db_shows_empty_state(tmp_path):
     r = c.get("/notifications")
     assert r.status_code == 200
     assert "No notifications yet." in r.text
+
+
+def test_notifications_page_shows_filtered_empty_message_when_filters_match_nothing(tmp_path):
+    c = client(tmp_path, [("CMSC351", "0101", 1, "2026-09-01 10:00:00")])
+    r = c.get("/notifications?course=MATH240")
+    assert r.status_code == 200
+    assert "No notifications match these filters." in r.text
+    assert "No notifications yet." not in r.text
+
+
+def test_notifications_page_shows_failure_detail(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.connection.execute(
+        "INSERT INTO notifications "
+        "(course_id, term_id, section_id, open_seats, sent_at, channel, status, detail) "
+        "VALUES ('CMSC351', '202601', '0101', 1, '2026-09-01 10:00:00', 'console', 'failed', 'connection refused')"
+    )
+    db.connection.commit()
+    db.close()
+    c = TestClient(create_app(cfg(tmp_path / "s.db"), []))
+    r = c.get("/notifications")
+    assert r.status_code == 200
+    assert "connection refused" in r.text
 
 
 def test_dashboard_and_manage_and_history_pages_cross_link(tmp_path):
