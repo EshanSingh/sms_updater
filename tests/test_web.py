@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from testudo_watch.config import AppConfig
 from testudo_watch.db import Database
 from testudo_watch.models import SectionSnapshot, Watch
-from testudo_watch.web import create_app
+from testudo_watch.web import build_manage_view, create_app
 
 
 def cfg(db_path):
@@ -43,7 +43,7 @@ def seed(tmp_path, *, heartbeat_at=None, cycle=42):
 
 def test_dashboard_renders_seeded_data(tmp_path):
     seed(tmp_path)
-    client = TestClient(create_app(cfg(tmp_path / "s.db")))
+    client = TestClient(create_app(cfg(tmp_path / "s.db"), []))
     r = client.get("/")
     assert r.status_code == 200
     body = r.text
@@ -52,7 +52,7 @@ def test_dashboard_renders_seeded_data(tmp_path):
 
 def test_fragment_routes_return_bare_partials(tmp_path):
     seed(tmp_path)
-    client = TestClient(create_app(cfg(tmp_path / "s.db")))
+    client = TestClient(create_app(cfg(tmp_path / "s.db"), []))
     for path in ("/fragments/status", "/fragments/watches", "/fragments/notifications"):
         r = client.get(path)
         assert r.status_code == 200
@@ -64,7 +64,7 @@ def test_status_fragment_shows_stale_for_old_heartbeat(tmp_path):
         "%Y-%m-%d %H:%M:%S"
     )
     seed(tmp_path, heartbeat_at=stale_at)
-    client = TestClient(create_app(cfg(tmp_path / "s.db")))
+    client = TestClient(create_app(cfg(tmp_path / "s.db"), []))
     r = client.get("/fragments/status")
     assert r.status_code == 200
     assert "stopped" in r.text.lower()
@@ -72,30 +72,45 @@ def test_status_fragment_shows_stale_for_old_heartbeat(tmp_path):
 
 def test_status_fragment_healthy_for_fresh_heartbeat(tmp_path):
     seed(tmp_path)  # heartbeat ≈ now
-    client = TestClient(create_app(cfg(tmp_path / "s.db")))
+    client = TestClient(create_app(cfg(tmp_path / "s.db"), []))
     r = client.get("/fragments/status")
     assert "cycle" in r.text and "42" in r.text
     assert "stopped" not in r.text.lower()
 
 
-def test_missing_database_shows_guidance_not_500(tmp_path):
-    client = TestClient(create_app(cfg(tmp_path / "missing.db")))
+def test_build_manage_view_splits_active_and_disabled(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.sync_watches([Watch("CMSC351", "202601", ("0101",))])           # file, active
+    db.add_or_replace_ui_watch("MATH240", "202601", ())                # ui, active
+    db.add_or_replace_ui_watch("PHYS161", "202601", ("0201",))
+    db.set_watch_active("PHYS161", "202601", False)                    # ui, disabled
+    view = build_manage_view(db, [Watch("CMSC351", "202601", ("0101",))])
+    assert [(r.course_id, r.source, r.in_file) for r in view.active] == [
+        ("CMSC351", "file", True),
+        ("MATH240", "ui", False),
+    ]
+    assert [(r.course_id, r.in_file) for r in view.disabled] == [("PHYS161", False)]
+    assert view.active[0].section_label == "0101"
+    assert view.active[1].section_label == ""
+    db.close()
+
+
+def test_missing_database_is_created_and_renders_empty_dashboard(tmp_path):
+    # read-write serve creates + migrates the DB on first request, like `run`
+    missing = tmp_path / "created.db"
+    client = TestClient(create_app(cfg(missing), []))
     r = client.get("/")
-    assert r.status_code == 200 and "testudo-watch run" in r.text
-    r2 = client.get("/fragments/watches")
-    assert r2.status_code == 200 and "<html" not in r2.text.lower()
+    assert r.status_code == 200
+    assert "testudo-watch run" in r.text  # "not completed a poll yet" guidance
+    assert missing.exists()
 
 
-def test_pre_v2_database_shows_guidance(tmp_path):
-    p = tmp_path / "v1.db"
+def test_newer_schema_database_shows_guidance(tmp_path):
+    p = tmp_path / "v99.db"
     con = sqlite3.connect(str(p))
-    con.execute(
-        "CREATE TABLE watches (course_id TEXT, term_id TEXT, "
-        "sections_csv TEXT, active INT, PRIMARY KEY(course_id, term_id))"
-    )
-    con.execute("PRAGMA user_version = 1")
+    con.execute("PRAGMA user_version = 99")
     con.commit()
     con.close()
-    client = TestClient(create_app(cfg(str(p))))
+    client = TestClient(create_app(cfg(str(p)), []))
     r = client.get("/")
-    assert r.status_code == 200 and "testudo-watch run" in r.text
+    assert r.status_code == 200 and "testudo-watch" in r.text  # guidance page, not 500

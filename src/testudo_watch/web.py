@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from testudo_watch.config import AppConfig
-from testudo_watch.db import Database
+from testudo_watch.db import Database, DatabaseError as SchemaError
 from testudo_watch.web_time import humanize_age, parse_db_utc
 
 _log = logging.getLogger("testudo_watch.web")
@@ -136,18 +136,50 @@ def build_notifications_view(
     ]
 
 
+@dataclass(frozen=True)
+class ManageRow:
+    course_id: str
+    term_id: str
+    section_label: str
+    source: str
+    in_file: bool
+
+
+@dataclass(frozen=True)
+class ManageView:
+    active: list[ManageRow]
+    disabled: list[ManageRow]
+
+
+def build_manage_view(db: Database, file_watches) -> ManageView:
+    in_file = {(w.course_id, w.term_id) for w in file_watches}
+    active: list[ManageRow] = []
+    disabled: list[ManageRow] = []
+    for w in db.get_all_watches():
+        row = ManageRow(
+            course_id=w.course_id,
+            term_id=w.term_id,
+            section_label=", ".join(w.sections),
+            source=w.source,
+            in_file=(w.course_id, w.term_id) in in_file,
+        )
+        (active if w.active else disabled).append(row)
+    return ManageView(active=active, disabled=disabled)
+
+
 _TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
-def create_app(config: AppConfig) -> FastAPI:
+def create_app(config: AppConfig, file_watches=None) -> FastAPI:
+    file_watches = list(file_watches or [])
     app = FastAPI(title="testudo-watch")
 
     def _load_views() -> dict | None:
         now = datetime.now(timezone.utc)
         try:
-            db = Database(config.db_path, read_only=True)
-        except sqlite3.DatabaseError as exc:
-            _log.warning("dashboard could not read %s: %s", config.db_path, exc)
+            db = Database(config.db_path)
+        except (sqlite3.DatabaseError, SchemaError) as exc:
+            _log.warning("dashboard could not open %s: %s", config.db_path, exc)
             return None
         try:
             return {
