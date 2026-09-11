@@ -18,6 +18,10 @@ def build_notifier(config: AppConfig) -> Notifier:
         from testudo_watch.notifier.sms import TwilioNotifier
 
         return TwilioNotifier.from_env()
+    if config.notifier == "email":
+        from testudo_watch.notifier.email import EmailNotifier
+
+        return EmailNotifier.from_env()
     from testudo_watch.notifier.console import ConsoleNotifier
 
     return ConsoleNotifier()
