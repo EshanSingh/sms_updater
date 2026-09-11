@@ -227,4 +227,15 @@ def create_app(config: AppConfig, file_watches=None) -> FastAPI:
             request, "_notifications.html", {"notifications": views["notifications"]}
         )
 
+    @app.get("/watches", response_class=HTMLResponse)
+    def watches_page(request: Request):
+        db = Database(config.db_path)
+        try:
+            view = build_manage_view(db, file_watches)
+        finally:
+            db.close()
+        return _TEMPLATES.TemplateResponse(
+            request, "manage.html", {"view": view, "error": None, "notice": None}
+        )
+
     return app
