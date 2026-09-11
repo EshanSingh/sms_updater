@@ -324,6 +324,35 @@ def test_sync_watches_does_not_reactivate_ui_disabled_row(tmp_path):
     db.close()
 
 
+def test_sync_watches_matches_existing_row_case_insensitively(tmp_path):
+    db = Database(tmp_path / "s.db")
+    # a legacy row written before course_id normalization was added
+    db.connection.execute(
+        "INSERT INTO watches (course_id, term_id, sections_csv, active, source) "
+        "VALUES ('cmsc351', '202601', '0101', 1, 'file')"
+    )
+    db.upsert_snapshots(
+        [SectionSnapshot("cmsc351", "202601", "0101", 200, 5, 0)]
+    )
+    db.connection.commit()
+
+    # config.load_config now normalizes course_id to upper-case before this call
+    db.sync_watches([Watch("CMSC351", "202601", ("0101", "0201"))])
+
+    rows = db.connection.execute(
+        "SELECT course_id, term_id, active, source, sections_csv FROM watches"
+    ).fetchall()
+    assert len(rows) == 1  # no duplicate row created
+    row = rows[0]
+    assert row["course_id"] == "cmsc351"  # original casing preserved, not renamed
+    assert (row["active"], row["source"], row["sections_csv"]) == (1, "file", "0101,0201")
+
+    # history under the old casing is still reachable — nothing orphaned
+    snaps = db.get_snapshots(Watch("cmsc351", "202601", ()))
+    assert snaps["0101"].open_seats == 5
+    db.close()
+
+
 def test_add_or_replace_ui_watch_sets_ui_source(tmp_path):
     db = Database(tmp_path / "s.db")
     db.add_or_replace_ui_watch("CMSC351", "202601", ("0101", "0201"))
