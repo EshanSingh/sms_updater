@@ -8,7 +8,7 @@ from testudo_watch.models import Watch
 
 MIN_POLL_INTERVAL_SECONDS = 15
 DEFAULT_POLL_INTERVAL_SECONDS = 30
-_VALID_NOTIFIERS = {"console", "sms"}
+_VALID_NOTIFIERS = {"console", "sms", "email"}
 
 
 class ConfigError(Exception):

@@ -1,8 +1,8 @@
 # testudo-watch
 
 Watches the UMD Testudo Schedule of Classes for open seats in the course
-sections you care about, and notifies you (console log or Twilio SMS) the
-moment a watched section goes from 0 open seats to 1 or more.
+sections you care about, and notifies you (console log, Twilio SMS, or email)
+the moment a watched section goes from 0 open seats to 1 or more.
 
 ## Install
 
@@ -18,7 +18,7 @@ Edit `watches.toml`:
 
 ```toml
 poll_interval_seconds = 30      # minimum 15
-notifier = "console"            # "console" or "sms"
+notifier = "console"            # "console", "sms", or "email"
 
 [[watch]]
 course_id = "CMSC351"
@@ -29,6 +29,10 @@ sections = ["0101", "0201"]     # empty = notify if ANY section opens
 For SMS, copy `.env.example` to `.env` and fill in your Twilio
 `ACCOUNT_SID`, `AUTH_TOKEN`, `TO_NUMBER`, and `FROM_NUMBER`, then set
 `notifier = "sms"`.
+
+For email, fill in `SMTP_HOST`, `SMTP_PORT` (defaults to 587/STARTTLS),
+`SMTP_USERNAME`, `SMTP_PASSWORD`, `TO_EMAIL`, and `FROM_EMAIL` in `.env`,
+then set `notifier = "email"`. Only one notifier is active at a time.
 
 ## Use
 

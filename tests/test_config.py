@@ -112,6 +112,20 @@ def test_load_config_normalizes_course_id_to_upper(tmp_path):
     assert watches[0].course_id == "CMSC351"
 
 
+def test_email_notifier_is_a_valid_choice(tmp_path):
+    path = write(
+        tmp_path,
+        """
+        notifier = "email"
+        [[watch]]
+        course_id = "CMSC351"
+        term_id = "202601"
+        """,
+    )
+    config, _ = load_config(path)
+    assert config.notifier == "email"
+
+
 def test_sections_must_be_list_of_strings(tmp_path):
     path = write(
         tmp_path,
