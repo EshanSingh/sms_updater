@@ -13,6 +13,8 @@ venv/
 
 # runtime artifacts
 *.db
+*.db-wal
+*.db-shm
 logs/
 
 # tooling

@@ -100,9 +100,9 @@ def test_record_notification_appends_rows(tmp_path):
     db.close()
 
 
-def test_fresh_db_is_schema_v2(tmp_path):
+def test_fresh_db_is_schema_v3(tmp_path):
     db = Database(tmp_path / "s.db")
-    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == 3
     tables = {
         r[0]
         for r in db.connection.execute(
@@ -197,3 +197,116 @@ def test_read_only_open_does_not_write_user_version(tmp_path):
     ro = Database(handmade, read_only=True)
     assert ro.connection.execute("PRAGMA user_version").fetchone()[0] == 0
     ro.close()
+
+
+def _v2_db_without_source(path):
+    """A hand-built pre-v3 database: watches has no `source` column, user_version=2."""
+    con = sqlite3.connect(str(path))
+    con.executescript(
+        "CREATE TABLE watches (course_id TEXT NOT NULL, term_id TEXT NOT NULL, "
+        "sections_csv TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1, "
+        "PRIMARY KEY (course_id, term_id));"
+    )
+    con.execute(
+        "INSERT INTO watches (course_id, term_id, sections_csv, active) "
+        "VALUES ('CMSC351', '202601', '0101', 1)"
+    )
+    con.execute("PRAGMA user_version = 2")
+    con.commit()
+    con.close()
+
+
+def test_migrate_v2_to_v3_adds_source_column(tmp_path):
+    path = tmp_path / "v2.db"
+    _v2_db_without_source(path)
+    db = Database(path)
+    cols = {r[1] for r in db.connection.execute("PRAGMA table_info(watches)")}
+    assert "source" in cols
+    row = db.connection.execute(
+        "SELECT source FROM watches WHERE course_id = 'CMSC351'"
+    ).fetchone()
+    assert row["source"] == "file"
+    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == 3
+    db.close()
+
+
+def test_fresh_db_has_source_column_and_v3(tmp_path):
+    db = Database(tmp_path / "fresh.db")
+    cols = {r[1] for r in db.connection.execute("PRAGMA table_info(watches)")}
+    assert "source" in cols
+    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == 3
+    db.close()
+
+
+def test_migrate_reopen_is_idempotent(tmp_path):
+    path = tmp_path / "v2.db"
+    _v2_db_without_source(path)
+    Database(path).close()
+    Database(path).close()  # second open must not error on a duplicate ALTER
+
+
+def test_write_mode_enables_wal_and_busy_timeout(tmp_path):
+    db = Database(tmp_path / "s.db")
+    assert db.connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    assert db.connection.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+    db.close()
+
+
+def test_read_only_open_of_wal_db_still_works(tmp_path):
+    path = tmp_path / "s.db"
+    w = Database(path)
+    w.write_heartbeat(1)
+    w.close()
+    ro = Database(path, read_only=True)
+    assert ro.get_heartbeat().cycle_count == 1
+    assert ro.connection.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+    ro.close()
+
+
+def test_sync_watches_ignores_ui_rows(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.connection.execute(
+        "INSERT INTO watches (course_id, term_id, sections_csv, active, source) "
+        "VALUES ('MATH240', '202601', '0111', 1, 'ui')"
+    )
+    db.connection.commit()
+    # a sync that does NOT mention MATH240 must leave the ui row active & unchanged
+    db.sync_watches([Watch("CMSC351", "202601", ("0101",))])
+    rows = {
+        (r["course_id"], r["term_id"]): (r["active"], r["source"], r["sections_csv"])
+        for r in db.connection.execute(
+            "SELECT course_id, term_id, active, source, sections_csv FROM watches"
+        )
+    }
+    assert rows[("MATH240", "202601")] == (1, "ui", "0111")
+    assert rows[("CMSC351", "202601")] == (1, "file", "0101")
+    db.close()
+
+
+def test_sync_watches_still_deactivates_absent_file_rows(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.sync_watches([Watch("CMSC351", "202601", ()), Watch("MATH240", "202601", ())])
+    db.sync_watches([Watch("CMSC351", "202601", ())])  # MATH240 dropped from file
+    active = {
+        (r["course_id"], r["term_id"])
+        for r in db.connection.execute(
+            "SELECT course_id, term_id FROM watches WHERE active = 1"
+        )
+    }
+    assert active == {("CMSC351", "202601")}
+    db.close()
+
+
+def test_sync_watches_does_not_reactivate_ui_disabled_row(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.sync_watches([Watch("CMSC351", "202601", ("0101",))])
+    db.connection.execute(
+        "UPDATE watches SET active = 0, source = 'ui' WHERE course_id = 'CMSC351'"
+    )
+    db.connection.commit()
+    db.sync_watches([Watch("CMSC351", "202601", ("0101",))])  # still in the file
+    row = db.connection.execute(
+        "SELECT active, source FROM watches WHERE course_id = 'CMSC351'"
+    ).fetchone()
+    assert (row["active"], row["source"]) == (0, "ui")
+    db.close()

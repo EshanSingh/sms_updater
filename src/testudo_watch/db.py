@@ -7,7 +7,7 @@ from pathlib import Path
 
 from testudo_watch.models import SectionSnapshot, Watch
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class DatabaseError(Exception):
@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS watches (
     term_id      TEXT NOT NULL,
     sections_csv TEXT NOT NULL DEFAULT '',
     active       INTEGER NOT NULL DEFAULT 1,
+    source       TEXT NOT NULL DEFAULT 'file',
     PRIMARY KEY (course_id, term_id)
 );
 
@@ -106,9 +107,12 @@ class Database:
             uri = Path(self.path).resolve().as_uri() + "?mode=ro"
             self.connection = sqlite3.connect(uri, uri=True)
             self.connection.row_factory = sqlite3.Row
+            self.connection.execute("PRAGMA busy_timeout = 5000")
         else:
             self.connection = sqlite3.connect(self.path)
             self.connection.row_factory = sqlite3.Row
+            self.connection.execute("PRAGMA journal_mode = WAL")
+            self.connection.execute("PRAGMA busy_timeout = 5000")
             self.migrate()
 
     def close(self) -> None:
@@ -121,9 +125,14 @@ class Database:
                 f"database file {self.path} was written by a newer testudo-watch "
                 f"(schema v{found} > v{SCHEMA_VERSION}); upgrade the package"
             )
-        # found == 0 (fresh/unversioned) or found == SCHEMA_VERSION: proceed.
-        # Future migrations for the 1..SCHEMA_VERSION-1 range go here.
         self.connection.executescript(_SCHEMA)
+        cols = {
+            r[1] for r in self.connection.execute("PRAGMA table_info(watches)")
+        }
+        if "source" not in cols:  # pre-v3 `watches` table already existed
+            self.connection.execute(
+                "ALTER TABLE watches ADD COLUMN source TEXT NOT NULL DEFAULT 'file'"
+            )
         self.connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self.connection.commit()
 
@@ -132,14 +141,17 @@ class Database:
         with self.connection:
             for w in watches:
                 self.connection.execute(
-                    "INSERT INTO watches (course_id, term_id, sections_csv, active) "
-                    "VALUES (?, ?, ?, 1) "
+                    "INSERT INTO watches "
+                    "(course_id, term_id, sections_csv, active, source) "
+                    "VALUES (?, ?, ?, 1, 'file') "
                     "ON CONFLICT(course_id, term_id) DO UPDATE SET "
-                    "sections_csv = excluded.sections_csv, active = 1",
+                    "sections_csv = excluded.sections_csv, active = 1 "
+                    "WHERE watches.source = 'file'",
                     (w.course_id, w.term_id, ",".join(w.sections)),
                 )
             for row in self.connection.execute(
-                "SELECT course_id, term_id FROM watches WHERE active = 1"
+                "SELECT course_id, term_id FROM watches "
+                "WHERE active = 1 AND source = 'file'"
             ).fetchall():
                 if (row["course_id"], row["term_id"]) not in keep:
                     self.connection.execute(
