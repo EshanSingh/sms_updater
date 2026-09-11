@@ -101,6 +101,17 @@ def test_non_utf8_file_raises_config_error(tmp_path):
         load_config(path)
 
 
+def test_load_config_normalizes_course_id_to_upper(tmp_path):
+    path = write(tmp_path, """
+        notifier = "console"
+        [[watch]]
+        course_id = "cmsc351"
+        term_id = "202601"
+        """)
+    _, watches = load_config(path)
+    assert watches[0].course_id == "CMSC351"
+
+
 def test_sections_must_be_list_of_strings(tmp_path):
     path = write(
         tmp_path,

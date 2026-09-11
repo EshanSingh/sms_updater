@@ -96,8 +96,9 @@ def test_serve_invokes_uvicorn_with_parsed_host_and_port(tmp_path, monkeypatch):
         seen["host"] = host
         seen["port"] = port
 
-    def fake_create_app(config):
+    def fake_create_app(config, file_watches):
         seen["config"] = config
+        seen["file_watches"] = file_watches
         return object()
 
     monkeypatch.setattr("uvicorn.run", fake_run)
@@ -107,3 +108,4 @@ def test_serve_invokes_uvicorn_with_parsed_host_and_port(tmp_path, monkeypatch):
     assert rc == 0
     assert seen["host"] == "127.0.0.1" and seen["port"] == 1234
     assert seen["config"].poll_interval_seconds == 30
+    assert [w.course_id for w in seen["file_watches"]] == ["CMSC351"]

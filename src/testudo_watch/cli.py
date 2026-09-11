@@ -75,12 +75,12 @@ def _cmd_run(config, watches, *, once: bool) -> int:
     return 0
 
 
-def _cmd_serve(config, *, host: str, port: int) -> int:
+def _cmd_serve(config, watches, *, host: str, port: int) -> int:
     import uvicorn
 
     from testudo_watch.web import create_app
 
-    uvicorn.run(create_app(config), host=host, port=port)
+    uvicorn.run(create_app(config, watches), host=host, port=port)
     return 0
 
 
@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "serve":
         configure_logging(config.log_dir)
         try:
-            return _cmd_serve(config, host=args.host, port=args.port)
+            return _cmd_serve(config, watches, host=args.host, port=args.port)
         except KeyboardInterrupt:
             return 0
         except Exception:  # noqa: BLE001

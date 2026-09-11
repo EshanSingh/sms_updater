@@ -69,7 +69,7 @@ def load_config(path: str | Path) -> tuple[AppConfig, list[Watch]]:
             )
         watches.append(
             Watch(
-                course_id=str(entry["course_id"]),
+                course_id=str(entry["course_id"]).strip().upper(),
                 term_id=str(entry["term_id"]),
                 sections=tuple(sections),
             )

@@ -1,0 +1,40 @@
+{% if error %}<p class="banner">{{ error }}</p>{% endif %}
+{% if notice %}<p class="banner">{{ notice }}</p>{% endif %}
+
+<form hx-post="/watches" hx-target="#manage" hx-swap="innerHTML" style="margin:.75rem 0">
+  <input name="course_id" placeholder="CMSC351" size="10" required>
+  <input name="term_id" placeholder="202601" size="8" required>
+  <input name="sections" placeholder="0101, 0201 (blank = any)" size="22">
+  <button type="submit">Add watch</button>
+</form>
+
+<h3>Active</h3>
+{% if not view.active %}<p class="muted">No active watches.</p>{% endif %}
+{% for r in view.active %}
+<div style="border-bottom:1px solid #eee;padding:.3rem 0">
+  <strong>{{ r.course_id }}</strong> <span class="muted">{{ r.term_id }} · {{ r.source }}</span>
+  <form hx-post="/watches/{{ r.course_id }}/{{ r.term_id }}/sections"
+        hx-target="#manage" hx-swap="innerHTML" style="display:inline">
+    <input name="sections" value="{{ r.section_label }}" placeholder="any section" size="18">
+    <button type="submit">Save sections</button>
+  </form>
+  <button hx-post="/watches/{{ r.course_id }}/{{ r.term_id }}/active"
+          hx-vals='{"active": "0"}' hx-target="#manage" hx-swap="innerHTML">Disable</button>
+  <button hx-post="/watches/{{ r.course_id }}/{{ r.term_id }}/delete"
+          hx-confirm="Delete this watch? This also clears its seat-count history."
+          hx-target="#manage" hx-swap="innerHTML">Delete</button>
+</div>
+{% endfor %}
+
+<h3>Disabled</h3>
+{% if not view.disabled %}<p class="muted">None.</p>{% endif %}
+{% for r in view.disabled %}
+<div style="border-bottom:1px solid #eee;padding:.3rem 0">
+  <strong>{{ r.course_id }}</strong> <span class="muted">{{ r.term_id }}{% if r.in_file %} · in watches.toml{% endif %}</span>
+  <button hx-post="/watches/{{ r.course_id }}/{{ r.term_id }}/active"
+          hx-vals='{"active": "1"}' hx-target="#manage" hx-swap="innerHTML">Enable</button>
+  <button hx-post="/watches/{{ r.course_id }}/{{ r.term_id }}/delete"
+          hx-confirm="Delete this watch? This also clears its seat-count history."
+          hx-target="#manage" hx-swap="innerHTML">Delete</button>
+</div>
+{% endfor %}
