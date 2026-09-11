@@ -50,6 +50,12 @@ class NotificationRow:
 
 
 @dataclass(frozen=True)
+class NotificationPage:
+    rows: list[NotificationRow]
+    total: int
+
+
+@dataclass(frozen=True)
 class WatchRow:
     course_id: str
     term_id: str
@@ -438,3 +444,59 @@ class Database:
             )
             for r in rows
         ]
+
+    def query_notifications(
+        self,
+        *,
+        course_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> NotificationPage:
+        clauses: list[str] = []
+        params: list[str] = []
+        if course_id:
+            clauses.append("course_id = ?")
+            params.append(course_id)
+        if since:
+            clauses.append("sent_at >= ?")
+            params.append(f"{since} 00:00:00")
+        if until:
+            clauses.append("sent_at <= ?")
+            params.append(f"{until} 23:59:59")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+        total = self.connection.execute(
+            f"SELECT COUNT(*) FROM notifications {where}", params
+        ).fetchone()[0]
+
+        rows = self.connection.execute(
+            f"SELECT sent_at, course_id, term_id, section_id, open_seats, "
+            f"channel, status, detail FROM notifications {where} "
+            f"ORDER BY id DESC LIMIT ? OFFSET ?",
+            (*params, page_size, (page - 1) * page_size),
+        ).fetchall()
+
+        return NotificationPage(
+            rows=[
+                NotificationRow(
+                    sent_at=r["sent_at"],
+                    course_id=r["course_id"],
+                    term_id=r["term_id"],
+                    section_id=r["section_id"],
+                    open_seats=r["open_seats"],
+                    channel=r["channel"],
+                    status=r["status"],
+                    detail=r["detail"],
+                )
+                for r in rows
+            ],
+            total=total,
+        )
+
+    def notification_course_ids(self) -> list[str]:
+        rows = self.connection.execute(
+            "SELECT DISTINCT course_id FROM notifications ORDER BY course_id"
+        ).fetchall()
+        return [r["course_id"] for r in rows]
