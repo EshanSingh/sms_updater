@@ -4,6 +4,7 @@ from testudo_watch.config import AppConfig
 from testudo_watch.db import Database
 from testudo_watch.models import SectionSnapshot, Watch
 from testudo_watch.web import (
+    build_history_view,
     build_notifications_view,
     build_status_view,
     build_watches_view,
@@ -137,4 +138,102 @@ def test_notifications_view_shape_and_order(tmp_path):
     assert [v.section_id for v in views] == ["0101", "0100"]  # newest first
     assert views[0].status == "failed" and views[1].status == "sent"
     assert views[0].sent_age.endswith("ago")
+    db.close()
+
+
+def _seed_notifications(db, entries):
+    """entries: list of (course_id, section_id, open_seats, sent_at)."""
+    for course_id, section_id, open_seats, sent_at in entries:
+        db.connection.execute(
+            "INSERT INTO notifications "
+            "(course_id, term_id, section_id, open_seats, sent_at, channel, status, detail) "
+            "VALUES (?, '202601', ?, ?, ?, 'console', 'sent', '')",
+            (course_id, section_id, open_seats, sent_at),
+        )
+    db.connection.commit()
+
+
+def test_build_history_view_basic_shape(tmp_path):
+    from testudo_watch.web import HistoryView
+
+    db = Database(tmp_path / "s.db")
+    _seed_notifications(
+        db,
+        [
+            ("CMSC351", "0101", 4, "2026-09-01 10:00:00"),
+            ("MATH240", "0111", 6, "2026-09-02 10:00:00"),
+        ],
+    )
+    view = build_history_view(
+        db,
+        course_id=None,
+        since=None,
+        until=None,
+        page=1,
+        now=datetime(2026, 9, 10, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    assert isinstance(view, HistoryView)
+    assert [r.course_id for r in view.rows] == ["MATH240", "CMSC351"]
+    assert view.courses == ["CMSC351", "MATH240"]
+    assert view.page == 1
+    assert view.total_pages == 1
+    assert view.has_prev is False and view.has_next is False
+    db.close()
+
+
+def test_build_history_view_pagination_flags(tmp_path):
+    db = Database(tmp_path / "s.db")
+    _seed_notifications(
+        db,
+        [
+            ("CMSC351", f"0{i:03d}", 1, f"2026-09-01 10:{i:02d}:00")
+            for i in range(5)
+        ],
+    )
+    view = build_history_view(
+        db,
+        course_id=None,
+        since=None,
+        until=None,
+        page=2,
+        page_size=2,
+        now=datetime(2026, 9, 10, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    assert view.total_pages == 3
+    assert view.has_prev is True and view.has_next is True
+    assert len(view.rows) == 2
+    db.close()
+
+
+def test_build_history_view_empty_db_has_single_page_no_prev_next(tmp_path):
+    db = Database(tmp_path / "s.db")
+    view = build_history_view(
+        db,
+        course_id=None,
+        since=None,
+        until=None,
+        page=1,
+        now=datetime(2026, 9, 10, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    assert view.rows == [] and view.total_pages == 1
+    assert view.has_prev is False and view.has_next is False
+    db.close()
+
+
+def test_build_history_view_echoes_filters_for_form_prefill(tmp_path):
+    db = Database(tmp_path / "s.db")
+    _seed_notifications(db, [("CMSC351", "0101", 1, "2026-09-01 10:00:00")])
+    view = build_history_view(
+        db,
+        course_id="CMSC351",
+        since="2026-09-01",
+        until="2026-09-10",
+        page=1,
+        now=datetime(2026, 9, 10, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    assert (view.course_id, view.since, view.until) == (
+        "CMSC351",
+        "2026-09-01",
+        "2026-09-10",
+    )
     db.close()

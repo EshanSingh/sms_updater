@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 import sqlite3
 from contextlib import contextmanager
@@ -192,6 +193,58 @@ def build_notifications_view(
         )
         for n in db.recent_notifications(limit)
     ]
+
+
+@dataclass(frozen=True)
+class HistoryView:
+    rows: list[NotificationView]
+    courses: list[str]
+    course_id: str | None
+    since: str | None
+    until: str | None
+    page: int
+    total_pages: int
+    has_prev: bool
+    has_next: bool
+
+
+def build_history_view(
+    db: Database,
+    *,
+    course_id: str | None,
+    since: str | None,
+    until: str | None,
+    page: int,
+    page_size: int = 50,
+    now: datetime,
+) -> HistoryView:
+    result = db.query_notifications(
+        course_id=course_id, since=since, until=until, page=page, page_size=page_size
+    )
+    rows = [
+        NotificationView(
+            sent_age=humanize_age(parse_db_utc(n.sent_at), now),
+            course_id=n.course_id,
+            section_id=n.section_id,
+            open_seats=n.open_seats,
+            channel=n.channel,
+            status=n.status,
+            detail=n.detail,
+        )
+        for n in result.rows
+    ]
+    total_pages = max(1, math.ceil(result.total / page_size))
+    return HistoryView(
+        rows=rows,
+        courses=db.notification_course_ids(),
+        course_id=course_id,
+        since=since,
+        until=until,
+        page=page,
+        total_pages=total_pages,
+        has_prev=page > 1,
+        has_next=page < total_pages,
+    )
 
 
 @dataclass(frozen=True)
