@@ -6,6 +6,7 @@ from testudo_watch.db import (
     Database,
     DatabaseError,
     Heartbeat,
+    NotificationPage,
     NotificationRow,
     SectionRow,
     WatchHealth,
@@ -427,4 +428,100 @@ def test_get_all_watches_includes_inactive_in_rowid_order(tmp_path):
 def test_watch_row_none_when_absent(tmp_path):
     db = Database(tmp_path / "s.db")
     assert db.watch_row("NONE", "000000") is None
+    db.close()
+
+
+def _seed_notifications(db, entries):
+    """entries: list of (course_id, section_id, open_seats, sent_at)."""
+    for course_id, section_id, open_seats, sent_at in entries:
+        db.connection.execute(
+            "INSERT INTO notifications "
+            "(course_id, term_id, section_id, open_seats, sent_at, channel, status, detail) "
+            "VALUES (?, '202601', ?, ?, ?, 'console', 'sent', '')",
+            (course_id, section_id, open_seats, sent_at),
+        )
+    db.connection.commit()
+
+
+def test_query_notifications_no_filters_returns_all_newest_first(tmp_path):
+    db = Database(tmp_path / "s.db")
+    _seed_notifications(
+        db,
+        [
+            ("CMSC351", "0101", 1, "2026-09-01 10:00:00"),
+            ("MATH240", "0111", 2, "2026-09-02 10:00:00"),
+        ],
+    )
+    page = db.query_notifications()
+    assert isinstance(page, NotificationPage)
+    assert page.total == 2
+    assert [r.course_id for r in page.rows] == ["MATH240", "CMSC351"]
+    db.close()
+
+
+def test_query_notifications_filters_by_course(tmp_path):
+    db = Database(tmp_path / "s.db")
+    _seed_notifications(
+        db,
+        [
+            ("CMSC351", "0101", 1, "2026-09-01 10:00:00"),
+            ("MATH240", "0111", 2, "2026-09-02 10:00:00"),
+        ],
+    )
+    page = db.query_notifications(course_id="CMSC351")
+    assert page.total == 1
+    assert [r.course_id for r in page.rows] == ["CMSC351"]
+    db.close()
+
+
+def test_query_notifications_filters_by_date_range_inclusive(tmp_path):
+    db = Database(tmp_path / "s.db")
+    _seed_notifications(
+        db,
+        [
+            ("CMSC351", "0101", 1, "2026-09-01 00:00:00"),  # exactly since boundary
+            ("CMSC351", "0201", 1, "2026-09-05 12:00:00"),  # inside range
+            ("CMSC351", "0301", 1, "2026-09-10 23:59:59"),  # exactly until boundary
+            ("CMSC351", "0401", 1, "2026-08-31 23:59:59"),  # just before since
+            ("CMSC351", "0501", 1, "2026-09-11 00:00:00"),  # just after until
+        ],
+    )
+    page = db.query_notifications(since="2026-09-01", until="2026-09-10")
+    assert page.total == 3
+    assert {r.section_id for r in page.rows} == {"0101", "0201", "0301"}
+    db.close()
+
+
+def test_query_notifications_paginates(tmp_path):
+    db = Database(tmp_path / "s.db")
+    _seed_notifications(
+        db,
+        [
+            ("CMSC351", f"0{i:03d}", 1, f"2026-09-01 10:{i:02d}:00")
+            for i in range(5)
+        ],
+    )
+    page1 = db.query_notifications(page=1, page_size=2)
+    page2 = db.query_notifications(page=2, page_size=2)
+    assert page1.total == 5 and page2.total == 5
+    assert [r.section_id for r in page1.rows] == ["0004", "0003"]
+    assert [r.section_id for r in page2.rows] == ["0002", "0001"]
+    db.close()
+
+
+def test_notification_course_ids_distinct_sorted_includes_deleted_watch(tmp_path):
+    db = Database(tmp_path / "s.db")
+    _seed_notifications(
+        db,
+        [
+            ("MATH240", "0111", 1, "2026-09-01 10:00:00"),
+            ("CMSC351", "0101", 1, "2026-09-02 10:00:00"),
+            ("CMSC351", "0201", 1, "2026-09-03 10:00:00"),
+        ],
+    )
+    # delete_watch removes the watches/watch_health/section_snapshots rows for
+    # MATH240 but intentionally leaves its notifications history in place.
+    db.add_or_replace_ui_watch("MATH240", "202601", ())
+    db.delete_watch("MATH240", "202601")
+    assert db.notification_course_ids() == ["CMSC351", "MATH240"]
     db.close()
