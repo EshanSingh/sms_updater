@@ -506,4 +506,34 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
                 request, db, notice=f"Deleted {row.course_id} {row.term_id}."
             )
 
+    @app.get("/notifications", response_class=HTMLResponse)
+    def notifications_page(request: Request):
+        course_id = request.query_params.get("course") or None
+        since = request.query_params.get("since") or None
+        until = request.query_params.get("until") or None
+        if since and not re.match(r"^\d{4}-\d{2}-\d{2}$", since):
+            since = None
+        if until and not re.match(r"^\d{4}-\d{2}-\d{2}$", until):
+            until = None
+        try:
+            page = int(request.query_params.get("page", "1"))
+        except ValueError:
+            page = 1
+        if page < 1:
+            page = 1
+        with _open_db(config) as db:
+            if db is None:
+                return _TEMPLATES.TemplateResponse(request, "no_data.html", {})
+            view = build_history_view(
+                db,
+                course_id=course_id,
+                since=since,
+                until=until,
+                page=page,
+                now=datetime.now(timezone.utc),
+            )
+        return _TEMPLATES.TemplateResponse(
+            request, "notifications.html", {"view": view}
+        )
+
     return app

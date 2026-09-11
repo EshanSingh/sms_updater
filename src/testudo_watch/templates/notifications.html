@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>testudo-watch — notification history</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 780px; margin: 2rem auto; padding: 0 1rem; }
+  nav a { margin-right: 1rem; }
+  table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
+  td, th { text-align: left; padding: .25rem .5rem; border-bottom: 1px solid #eee; }
+  .muted { color: #666; font-size: .85em; }
+  .badge { font-size: .8em; padding: .1rem .4rem; border-radius: 3px; background: #eee; }
+  .badge.sent { background: #d7efdc; }
+  .badge.failed, .badge.health-failed { background: #f6cccc; }
+  form.filters input, form.filters select { margin-right: .5rem; }
+  .pager a { margin-right: 1rem; }
+</style>
+</head>
+<body>
+<h1>testudo-watch</h1>
+<nav>
+  <a href="/">Dashboard</a>
+  <a href="/watches">Manage watches</a>
+  <a href="/notifications">Notification history</a>
+</nav>
+<h2>Notification history</h2>
+
+<form class="filters" method="get">
+  <select name="course">
+    <option value="">All courses</option>
+    {% for c in view.courses %}
+    {% if not view.course_id or c == view.course_id %}
+    <option value="{{ c }}"{% if c == view.course_id %} selected{% endif %}>{{ c }}</option>
+    {% endif %}
+    {% endfor %}
+  </select>
+  <input type="date" name="since" value="{{ view.since or '' }}">
+  <input type="date" name="until" value="{{ view.until or '' }}">
+  <button type="submit">Filter</button>
+  <a href="/notifications">Clear filters</a>
+</form>
+
+{% if not view.rows %}
+<p class="muted">No notifications yet.</p>
+{% else %}
+<table>
+  {% for n in view.rows %}
+  <tr>
+    <td class="muted">{{ n.sent_age }}</td>
+    <td>{{ n.course_id }} {{ n.section_id }}</td>
+    <td>{{ n.open_seats }} open</td>
+    <td class="muted">{{ n.channel }}</td>
+    <td><span class="badge {{ n.status }}">{{ n.status }}</span></td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<p class="pager muted">
+  Page {{ view.page }} of {{ view.total_pages }}
+  {% if view.has_prev %}
+  <a href="?course={{ view.course_id or '' }}&since={{ view.since or '' }}&until={{ view.until or '' }}&page={{ view.page - 1 }}">&laquo; Prev</a>
+  {% endif %}
+  {% if view.has_next %}
+  <a href="?course={{ view.course_id or '' }}&since={{ view.since or '' }}&until={{ view.until or '' }}&page={{ view.page + 1 }}">Next &raquo;</a>
+  {% endif %}
+</p>
+</body>
+</html>

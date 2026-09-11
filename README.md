@@ -80,6 +80,13 @@ when `testudo-watch run` re-reads `watches.toml` on startup. Deleting a watch
 that is still listed in `watches.toml` disables it instead (remove it from the
 file to delete it for good).
 
+### Browsing notification history
+
+`http://127.0.0.1:8477/notifications` lists every notification ever sent,
+filterable by course and date range, 50 per page. The dashboard's notification
+panel only shows the most recent 50 — use this page to look further back or
+narrow down to one course.
+
 ## Test
 
 ```bash
