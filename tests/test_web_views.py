@@ -205,6 +205,31 @@ def test_build_history_view_pagination_flags(tmp_path):
     db.close()
 
 
+def test_build_history_view_clamps_out_of_range_page_to_last_page(tmp_path):
+    db = Database(tmp_path / "s.db")
+    _seed_notifications(
+        db,
+        [
+            ("CMSC351", f"0{i:03d}", 1, f"2026-09-01 10:{i:02d}:00")
+            for i in range(5)
+        ],
+    )
+    view = build_history_view(
+        db,
+        course_id=None,
+        since=None,
+        until=None,
+        page=9,
+        page_size=2,
+        now=datetime(2026, 9, 10, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    assert view.total_pages == 3
+    assert view.page == 3  # clamped down from the requested 9
+    assert len(view.rows) == 1  # the actual last page's row, not an empty page
+    assert view.has_prev is True and view.has_next is False
+    db.close()
+
+
 def test_build_history_view_empty_db_has_single_page_no_prev_next(tmp_path):
     db = Database(tmp_path / "s.db")
     view = build_history_view(

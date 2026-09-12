@@ -32,6 +32,42 @@ def test_main_returns_1_on_config_error(tmp_path, capsys):
     assert "config" in capsys.readouterr().err.lower()
 
 
+def test_main_returns_2_when_logging_cannot_be_configured(tmp_path, monkeypatch, capsys):
+    config_path = write_config(tmp_path)
+
+    def boom(log_dir, **kwargs):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(cli, "configure_logging", boom)
+    rc = cli.main(["check-once", "--config", str(config_path)])
+    assert rc == 2
+    assert "logging" in capsys.readouterr().err.lower()
+
+
+def test_list_returns_2_when_logging_cannot_be_configured(tmp_path, monkeypatch, capsys):
+    config_path = write_config(tmp_path)
+
+    def boom(log_dir, **kwargs):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(cli, "configure_logging", boom)
+    rc = cli.main(["list", "--config", str(config_path)])
+    assert rc == 2
+    assert "logging" in capsys.readouterr().err.lower()
+
+
+def test_serve_returns_2_when_logging_cannot_be_configured(tmp_path, monkeypatch, capsys):
+    config_path = write_config(tmp_path)
+
+    def boom(log_dir, **kwargs):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(cli, "configure_logging", boom)
+    rc = cli.main(["serve", "--config", str(config_path)])
+    assert rc == 2
+    assert "logging" in capsys.readouterr().err.lower()
+
+
 def test_check_once_runs_one_pass(tmp_path, monkeypatch):
     config_path = write_config(tmp_path)
     db_path = tmp_path / "state.db"

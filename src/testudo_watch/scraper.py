@@ -68,9 +68,11 @@ def parse_sections(
 def fetch_sections(
     session: requests.Session, course_id: str, term_id: str
 ) -> list[SectionSnapshot]:
-    url = SECTIONS_URL.format(term_id=term_id) + f"?courseIds={course_id}"
+    url = SECTIONS_URL.format(term_id=term_id)
     try:
-        response = session.get(url, timeout=REQUEST_TIMEOUT)
+        response = session.get(
+            url, params={"courseIds": course_id}, timeout=REQUEST_TIMEOUT
+        )
     except requests.RequestException as exc:
         raise ScrapeError(f"request to {url} failed: {exc}") from exc
     if response.status_code != 200:
