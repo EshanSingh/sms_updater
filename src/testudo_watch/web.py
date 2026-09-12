@@ -342,6 +342,16 @@ def create_app(config: AppConfig, file_watches) -> Starlette:
             _log.warning("dashboard could not read %s: %s", config.db_path, exc)
             return None
 
+    def _load_view(build):
+        try:
+            with _open_db(config) as db:
+                if db is None:
+                    return None
+                return build(db)
+        except sqlite3.DatabaseError as exc:
+            _log.warning("could not read %s: %s", config.db_path, exc)
+            return None
+
     @get("/")
     def dashboard(request: Request):
         views = _load_views()
@@ -351,29 +361,30 @@ def create_app(config: AppConfig, file_watches) -> Starlette:
 
     @get("/fragments/status")
     def fragment_status(request: Request):
-        views = _load_views()
-        if views is None:
+        now = datetime.now(timezone.utc)
+        status = _load_view(lambda db: build_status_view(db, config, now=now))
+        if status is None:
             return _TEMPLATES.TemplateResponse(request, "_no_data.html", {})
-        return _TEMPLATES.TemplateResponse(
-            request, "_status.html", {"status": views["status"]}
-        )
+        return _TEMPLATES.TemplateResponse(request, "_status.html", {"status": status})
 
     @get("/fragments/watches")
     def fragment_watches(request: Request):
-        views = _load_views()
-        if views is None:
+        now = datetime.now(timezone.utc)
+        watches = _load_view(lambda db: build_watches_view(db, now=now))
+        if watches is None:
             return _TEMPLATES.TemplateResponse(request, "_no_data.html", {})
         return _TEMPLATES.TemplateResponse(
-            request, "_watches.html", {"watches": views["watches"]}
+            request, "_watches.html", {"watches": watches}
         )
 
     @get("/fragments/notifications")
     def fragment_notifications(request: Request):
-        views = _load_views()
-        if views is None:
+        now = datetime.now(timezone.utc)
+        notifications = _load_view(lambda db: build_notifications_view(db, now=now))
+        if notifications is None:
             return _TEMPLATES.TemplateResponse(request, "_no_data.html", {})
         return _TEMPLATES.TemplateResponse(
-            request, "_notifications.html", {"notifications": views["notifications"]}
+            request, "_notifications.html", {"notifications": notifications}
         )
 
     @get("/watches")

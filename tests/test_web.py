@@ -59,6 +59,51 @@ def test_fragment_routes_return_bare_partials(tmp_path):
         assert "<html" not in r.text.lower()
 
 
+def test_status_fragment_does_not_build_unrelated_views(tmp_path, monkeypatch):
+    from testudo_watch import web
+
+    seed(tmp_path)
+
+    def boom(*a, **k):
+        raise AssertionError("should not be called for the status fragment")
+
+    monkeypatch.setattr(web, "build_watches_view", boom)
+    monkeypatch.setattr(web, "build_notifications_view", boom)
+    client = TestClient(create_app(cfg(tmp_path / "s.db"), []))
+    r = client.get("/fragments/status")
+    assert r.status_code == 200
+
+
+def test_watches_fragment_does_not_build_unrelated_views(tmp_path, monkeypatch):
+    from testudo_watch import web
+
+    seed(tmp_path)
+
+    def boom(*a, **k):
+        raise AssertionError("should not be called for the watches fragment")
+
+    monkeypatch.setattr(web, "build_status_view", boom)
+    monkeypatch.setattr(web, "build_notifications_view", boom)
+    client = TestClient(create_app(cfg(tmp_path / "s.db"), []))
+    r = client.get("/fragments/watches")
+    assert r.status_code == 200
+
+
+def test_notifications_fragment_does_not_build_unrelated_views(tmp_path, monkeypatch):
+    from testudo_watch import web
+
+    seed(tmp_path)
+
+    def boom(*a, **k):
+        raise AssertionError("should not be called for the notifications fragment")
+
+    monkeypatch.setattr(web, "build_status_view", boom)
+    monkeypatch.setattr(web, "build_watches_view", boom)
+    client = TestClient(create_app(cfg(tmp_path / "s.db"), []))
+    r = client.get("/fragments/notifications")
+    assert r.status_code == 200
+
+
 def test_status_fragment_shows_stale_for_old_heartbeat(tmp_path):
     stale_at = (datetime.now(timezone.utc) - timedelta(days=1)).strftime(
         "%Y-%m-%d %H:%M:%S"
