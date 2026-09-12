@@ -1,8 +1,8 @@
 # testudo-watch
 
 Watches the UMD Testudo Schedule of Classes for open seats in the course
-sections you care about, and notifies you (console log, Twilio SMS, or email)
-the moment a watched section goes from 0 open seats to 1 or more.
+sections you care about, and notifies you (console log, Twilio SMS, email, or
+a webhook) the moment a watched section goes from 0 open seats to 1 or more.
 
 ## Install
 
@@ -18,7 +18,7 @@ Edit `watches.toml`:
 
 ```toml
 poll_interval_seconds = 30      # minimum 15
-notifier = "console"            # "console", "sms", or "email"
+notifier = "console"            # "console", "sms", "email", or "webhook"
 
 [[watch]]
 course_id = "CMSC351"
@@ -32,7 +32,14 @@ For SMS, copy `.env.example` to `.env` and fill in your Twilio
 
 For email, fill in `SMTP_HOST`, `SMTP_PORT` (defaults to 587/STARTTLS),
 `SMTP_USERNAME`, `SMTP_PASSWORD`, `TO_EMAIL`, and `FROM_EMAIL` in `.env`,
-then set `notifier = "email"`. Only one notifier is active at a time.
+then set `notifier = "email"`.
+
+For a webhook, set `WEBHOOK_URL` in `.env` and `notifier = "webhook"`. Each
+notification is POSTed as JSON `{"content": "<message>"}`, which is Discord's
+incoming-webhook format — point `WEBHOOK_URL` at a Discord channel's webhook
+URL to post alerts straight into Discord.
+
+Only one notifier is active at a time.
 
 ## Use
 

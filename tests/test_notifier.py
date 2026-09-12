@@ -1,10 +1,12 @@
 import pytest
+import requests
 
 from testudo_watch.config import AppConfig, ConfigError
 from testudo_watch.notifier import NotifierError, build_notifier
 from testudo_watch.notifier.console import ConsoleNotifier
 from testudo_watch.notifier.email import EmailNotifier
 from testudo_watch.notifier.sms import TwilioNotifier
+from testudo_watch.notifier.webhook import WebhookNotifier
 
 
 def cfg(notifier):
@@ -160,3 +162,64 @@ def test_email_notifier_send_calls_smtp(monkeypatch):
         ("send_message", "me@example.com", "alerts@example.com", "seat open"),
         ("quit",),
     ]
+
+
+def test_build_notifier_webhook_requires_env(monkeypatch):
+    monkeypatch.delenv("WEBHOOK_URL", raising=False)
+    with pytest.raises(ConfigError):
+        build_notifier(cfg("webhook"))
+
+
+def test_webhook_notifier_from_env_builds(monkeypatch):
+    monkeypatch.setenv("WEBHOOK_URL", "https://discord.com/api/webhooks/123/abc")
+    n = WebhookNotifier.from_env()
+    assert n.url == "https://discord.com/api/webhooks/123/abc"
+
+
+def test_webhook_notifier_send_posts_discord_compatible_json(monkeypatch):
+    n = WebhookNotifier("https://discord.com/api/webhooks/123/abc")
+    captured = {}
+
+    class _Response:
+        def raise_for_status(self):
+            pass
+
+    def fake_post(url, json, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr("testudo_watch.notifier.webhook.requests.post", fake_post)
+    n.send("seat open")
+    assert captured == {
+        "url": "https://discord.com/api/webhooks/123/abc",
+        "json": {"content": "seat open"},
+        "timeout": 10,
+    }
+
+
+def test_webhook_notifier_send_wraps_request_errors(monkeypatch):
+    n = WebhookNotifier("https://discord.com/api/webhooks/123/abc")
+
+    def fake_post(url, json, timeout):
+        raise requests.ConnectionError("dns failure")
+
+    monkeypatch.setattr("testudo_watch.notifier.webhook.requests.post", fake_post)
+    with pytest.raises(NotifierError):
+        n.send("hi")
+
+
+def test_webhook_notifier_send_wraps_non_2xx_status(monkeypatch):
+    n = WebhookNotifier("https://discord.com/api/webhooks/123/abc")
+
+    class _Response:
+        def raise_for_status(self):
+            raise requests.HTTPError("404 Not Found")
+
+    monkeypatch.setattr(
+        "testudo_watch.notifier.webhook.requests.post",
+        lambda url, json, timeout: _Response(),
+    )
+    with pytest.raises(NotifierError):
+        n.send("hi")
