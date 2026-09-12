@@ -126,6 +126,20 @@ def test_email_notifier_is_a_valid_choice(tmp_path):
     assert config.notifier == "email"
 
 
+def test_webhook_notifier_is_a_valid_choice(tmp_path):
+    path = write(
+        tmp_path,
+        """
+        notifier = "webhook"
+        [[watch]]
+        course_id = "CMSC351"
+        term_id = "202601"
+        """,
+    )
+    config, _ = load_config(path)
+    assert config.notifier == "webhook"
+
+
 def test_sections_must_be_list_of_strings(tmp_path):
     path = write(
         tmp_path,

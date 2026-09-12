@@ -22,6 +22,10 @@ def build_notifier(config: AppConfig) -> Notifier:
         from testudo_watch.notifier.email import EmailNotifier
 
         return EmailNotifier.from_env()
+    if config.notifier == "webhook":
+        from testudo_watch.notifier.webhook import WebhookNotifier
+
+        return WebhookNotifier.from_env()
     from testudo_watch.notifier.console import ConsoleNotifier
 
     return ConsoleNotifier()
