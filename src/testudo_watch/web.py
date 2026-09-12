@@ -221,6 +221,15 @@ def build_history_view(
     result = db.query_notifications(
         course_id=course_id, since=since, until=until, page=page, page_size=page_size
     )
+    total_pages = max(1, math.ceil(result.total / page_size))
+    if page > total_pages:
+        # The requested page is past the end (e.g. a stale link after rows were
+        # deleted, or someone editing the URL) — clamp to the real last page
+        # instead of showing an empty page with a misleading "no results" message.
+        page = total_pages
+        result = db.query_notifications(
+            course_id=course_id, since=since, until=until, page=page, page_size=page_size
+        )
     rows = [
         NotificationView(
             sent_age=humanize_age(parse_db_utc(n.sent_at), now),
@@ -233,7 +242,6 @@ def build_history_view(
         )
         for n in result.rows
     ]
-    total_pages = max(1, math.ceil(result.total / page_size))
     return HistoryView(
         rows=rows,
         courses=db.notification_course_ids(),

@@ -84,6 +84,15 @@ def _cmd_serve(config, watches, *, host: str, port: int) -> int:
     return 0
 
 
+def _configure_logging_or_none(log_dir: str, *, verbose: bool = False) -> int | None:
+    try:
+        configure_logging(log_dir, verbose=verbose)
+        return None
+    except OSError as exc:
+        print(f"could not set up logging in {log_dir!r}: {exc}", file=sys.stderr)
+        return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     args = _build_parser().parse_args(argv)
@@ -94,7 +103,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.command == "list":
-        configure_logging(config.log_dir)
+        if (rc := _configure_logging_or_none(config.log_dir)) is not None:
+            return rc
         try:
             return _cmd_list(config, watches)
         except Exception:  # noqa: BLE001
@@ -102,7 +112,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
     if args.command == "serve":
-        configure_logging(config.log_dir)
+        if (rc := _configure_logging_or_none(config.log_dir)) is not None:
+            return rc
         try:
             return _cmd_serve(config, watches, host=args.host, port=args.port)
         except KeyboardInterrupt:
@@ -111,7 +122,10 @@ def main(argv: list[str] | None = None) -> int:
             _log.exception("fatal error")
             return 2
 
-    configure_logging(config.log_dir, verbose=getattr(args, "verbose", False))
+    if (rc := _configure_logging_or_none(
+        config.log_dir, verbose=getattr(args, "verbose", False)
+    )) is not None:
+        return rc
     try:
         return _cmd_run(config, watches, once=args.command == "check-once")
     except ConfigError as exc:  # e.g. missing Twilio env from build_notifier

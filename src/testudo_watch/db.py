@@ -124,6 +124,12 @@ class Database:
             self.connection.row_factory = sqlite3.Row
             self.connection.execute("PRAGMA busy_timeout = 5000")
         else:
+            try:
+                Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise DatabaseError(
+                    f"could not create directory for database {self.path}: {exc}"
+                ) from exc
             self.connection = sqlite3.connect(self.path)
             self.connection.row_factory = sqlite3.Row
             self.connection.execute("PRAGMA journal_mode = WAL")
@@ -208,21 +214,22 @@ class Database:
     def _sections_tuple(csv: str) -> tuple[str, ...]:
         return tuple(s for s in csv.split(",") if s) if csv else ()
 
+    @classmethod
+    def _watch_row_from_sql(cls, r: sqlite3.Row) -> WatchRow:
+        return WatchRow(
+            r["course_id"],
+            r["term_id"],
+            cls._sections_tuple(r["sections_csv"]),
+            bool(r["active"]),
+            r["source"],
+        )
+
     def get_all_watches(self) -> list[WatchRow]:
         rows = self.connection.execute(
             "SELECT course_id, term_id, sections_csv, active, source "
             "FROM watches ORDER BY rowid"
         ).fetchall()
-        return [
-            WatchRow(
-                r["course_id"],
-                r["term_id"],
-                self._sections_tuple(r["sections_csv"]),
-                bool(r["active"]),
-                r["source"],
-            )
-            for r in rows
-        ]
+        return [self._watch_row_from_sql(r) for r in rows]
 
     def watch_row(self, course_id: str, term_id: str) -> WatchRow | None:
         r = self.connection.execute(
@@ -232,13 +239,7 @@ class Database:
         ).fetchone()
         if r is None:
             return None
-        return WatchRow(
-            r["course_id"],
-            r["term_id"],
-            self._sections_tuple(r["sections_csv"]),
-            bool(r["active"]),
-            r["source"],
-        )
+        return self._watch_row_from_sql(r)
 
     def add_or_replace_ui_watch(
         self, course_id: str, term_id: str, sections: tuple[str, ...]

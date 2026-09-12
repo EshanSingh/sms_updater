@@ -1,4 +1,5 @@
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -26,6 +27,24 @@ def test_newer_schema_version_raises_database_error(tmp_path):
     db.connection.commit()
     db.close()
     with pytest.raises(DatabaseError):
+        Database(path)
+
+
+def test_creates_missing_parent_directory(tmp_path):
+    path = tmp_path / "nested" / "dir" / "state.db"
+    db = Database(path)
+    db.close()
+    assert path.exists()
+
+
+def test_parent_directory_creation_failure_raises_friendly_error(tmp_path, monkeypatch):
+    path = tmp_path / "nested" / "state.db"
+
+    def boom(self, parents=False, exist_ok=False):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "mkdir", boom)
+    with pytest.raises(DatabaseError, match="disk full"):
         Database(path)
 
 

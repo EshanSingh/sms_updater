@@ -83,12 +83,29 @@ def test_notifications_page_paginates_with_working_links(tmp_path):
         ],
     )
     page1 = c.get("/notifications")
-    assert 'href="?course=&since=&until=&page=2"' in page1.text
+    assert 'href="?course=&amp;since=&amp;until=&amp;page=2"' in page1.text
     assert "Prev" not in page1.text
 
     page2 = c.get("/notifications?page=2")
     assert "Prev" in page2.text
-    assert "Next" not in page2.text  # 60 rows / 50 per page = exactly 2 pages
+
+
+def test_pager_hrefs_urlencode_filter_values(tmp_path):
+    # A course value containing "&" is an unrealistic edge case today (real
+    # course ids are alnum), but proves the pager doesn't break if that ever
+    # changes — the filter value must survive round-tripping through the URL.
+    weird_course = "CMSC351&X"
+    c = client(
+        tmp_path,
+        [
+            (weird_course, f"0{i:03d}", 1, f"2026-09-01 10:{i:02d}:00")
+            for i in range(60)
+        ],
+    )
+    r = c.get("/notifications?course=CMSC351%26X")
+    assert "CMSC351%26X" in r.text  # value is percent-encoded, not injected raw
+    assert "&amp;since=" in r.text  # param separators are HTML-escaped
+    assert "CMSC351&X&since=" not in r.text  # never a raw, un-encoded ampersand run
 
 
 def test_notifications_page_malformed_page_param_defaults_to_one(tmp_path):

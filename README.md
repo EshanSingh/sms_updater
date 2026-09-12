@@ -47,7 +47,7 @@ Only one notifier is active at a time.
 testudo-watch check-once   # one pass, prints parsed seat counts
 testudo-watch run          # poll forever; Ctrl-C to stop
 testudo-watch list         # show watches and last-seen seat counts
-testudo-watch serve      # web dashboard at http://127.0.0.1:8477
+testudo-watch serve        # web dashboard at http://127.0.0.1:8477
 ```
 
 State is kept in `testudo_watch.db` (SQLite); logs in `logs/testudo_watch.log`.
