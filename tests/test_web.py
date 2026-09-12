@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from fastapi.testclient import TestClient
+from starlette.testclient import TestClient
 
 from testudo_watch.config import AppConfig
 from testudo_watch.db import Database
