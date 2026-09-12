@@ -301,3 +301,45 @@ def test_add_watch_returns_503_on_mid_query_write_error(tmp_path, monkeypatch, f
         "/watches", data={"course_id": "CMSC330", "term_id": "202601", "sections": ""}
     )
     assert r.status_code == 503
+
+
+def test_slow_probe_does_not_block_other_concurrent_requests(tmp_path, monkeypatch):
+    import threading
+    import time
+
+    def slow_probe(course_id, term_id):
+        time.sleep(0.4)
+        return ["0101"]
+
+    monkeypatch.setattr(web, "_probe", slow_probe)
+    results = {}
+
+    # TestClient must be used as a context manager here: outside a `with`
+    # block it spins up a brand-new event loop per request, so two threads
+    # calling it would never actually share a loop to contend for and the
+    # test wouldn't prove anything. Entered as a context manager, all calls
+    # share one portal/event loop, matching how `serve` really runs.
+    with client(tmp_path) as c:
+
+        def do_slow_post():
+            c.post(
+                "/watches",
+                data={"course_id": "CMSC330", "term_id": "202601", "sections": ""},
+            )
+
+        def do_fast_get():
+            time.sleep(0.1)  # let the POST start and enter the slow probe first
+            start = time.monotonic()
+            c.get("/watches")
+            results["get_duration"] = time.monotonic() - start
+
+        t_post = threading.Thread(target=do_slow_post)
+        t_get = threading.Thread(target=do_fast_get)
+        t_post.start()
+        t_get.start()
+        t_post.join(timeout=5)
+        t_get.join(timeout=5)
+
+    # If the probe blocked the event loop, this GET would queue behind the
+    # whole 0.4s sleep. It should complete almost immediately instead.
+    assert results["get_duration"] < 0.3

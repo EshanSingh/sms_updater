@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import re
@@ -51,7 +52,7 @@ def _probe(course_id: str, term_id: str) -> list[str]:
     return [s.section_id for s in snaps]
 
 
-def _validate_and_probe(course_id: str, term_id: str, sections: tuple[str, ...]):
+async def _validate_and_probe(course_id: str, term_id: str, sections: tuple[str, ...]):
     """Returns normalized (course_id, sections). Raises ProbeError on any failure."""
     course_id = course_id.strip().upper()
     term_id = term_id.strip()
@@ -59,7 +60,10 @@ def _validate_and_probe(course_id: str, term_id: str, sections: tuple[str, ...])
         raise ProbeError(f"course id {course_id!r} looks wrong (expected e.g. CMSC351)")
     if not _TERM_RE.match(term_id):
         raise ProbeError(f"term id {term_id!r} must be 6 digits (e.g. 202601)")
-    available = _probe(course_id, term_id)
+    # _probe does a blocking network call — run it in a thread so a slow or
+    # stuck Testudo request doesn't freeze the whole event loop (every other
+    # concurrent request) for up to REQUEST_TIMEOUT seconds.
+    available = await asyncio.to_thread(_probe, course_id, term_id)
     missing = [s for s in sections if s not in available]
     if missing:
         raise ProbeError(
@@ -409,7 +413,7 @@ def create_app(config: AppConfig, file_watches) -> Starlette:
                         status_code=503,
                     )
                 try:
-                    course_id, term_id, sections = _validate_and_probe(
+                    course_id, term_id, sections = await _validate_and_probe(
                         form.get("course_id", ""),
                         form.get("term_id", ""),
                         _parse_sections(form.get("sections", "")),
@@ -446,7 +450,7 @@ def create_app(config: AppConfig, file_watches) -> Starlette:
                 if row is None:
                     return _manage_response(request, db, error="No such watch.", status=404)
                 try:
-                    _, _, sections = _validate_and_probe(
+                    _, _, sections = await _validate_and_probe(
                         row.course_id, row.term_id, _parse_sections(form.get("sections", ""))
                     )
                 except ProbeError as exc:
