@@ -41,6 +41,19 @@ def seed(tmp_path, *, heartbeat_at=None, cycle=42):
     db.close()
 
 
+def test_htmx_is_served_locally_not_from_a_cdn(tmp_path):
+    client = TestClient(create_app(cfg(tmp_path / "s.db"), []))
+    r = client.get("/static/htmx.min.js")
+    assert r.status_code == 200
+    assert "javascript" in r.headers["content-type"]
+    assert "htmx" in r.text.lower()
+
+    for path in ("/", "/watches"):
+        page = client.get(path)
+        assert "unpkg.com" not in page.text
+        assert 'src="/static/htmx.min.js"' in page.text
+
+
 def test_dashboard_renders_seeded_data(tmp_path):
     seed(tmp_path)
     client = TestClient(create_app(cfg(tmp_path / "s.db"), []))

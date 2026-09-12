@@ -14,7 +14,8 @@ import requests
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import HTMLResponse
-from starlette.routing import Route
+from starlette.routing import BaseRoute, Mount, Route
+from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
 from testudo_watch.config import AppConfig
@@ -293,6 +294,7 @@ def build_manage_view(db: Database, file_watches) -> ManageView:
 
 
 _TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+_STATIC_DIR = Path(__file__).parent / "static"
 
 
 @contextmanager
@@ -311,7 +313,9 @@ def _open_db(config: AppConfig):
 
 def create_app(config: AppConfig, file_watches) -> Starlette:
     file_watches = list(file_watches)
-    routes: list[Route] = []
+    routes: list[BaseRoute] = [
+        Mount("/static", app=StaticFiles(directory=str(_STATIC_DIR)), name="static"),
+    ]
 
     def get(path: str):
         def register(func):
