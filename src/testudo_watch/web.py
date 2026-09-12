@@ -10,9 +10,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import HTMLResponse
+from starlette.routing import Route
+from starlette.templating import Jinja2Templates
 
 from testudo_watch.config import AppConfig
 from testudo_watch.db import Database, DatabaseError as SchemaError
@@ -303,9 +305,23 @@ def _open_db(config: AppConfig):
         db.close()
 
 
-def create_app(config: AppConfig, file_watches) -> FastAPI:
+def create_app(config: AppConfig, file_watches) -> Starlette:
     file_watches = list(file_watches)
-    app = FastAPI(title="testudo-watch")
+    routes: list[Route] = []
+
+    def get(path: str):
+        def register(func):
+            routes.append(Route(path, func, methods=["GET"]))
+            return func
+
+        return register
+
+    def post(path: str):
+        def register(func):
+            routes.append(Route(path, func, methods=["POST"]))
+            return func
+
+        return register
 
     def _load_views() -> dict | None:
         now = datetime.now(timezone.utc)
@@ -322,14 +338,14 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
             _log.warning("dashboard could not read %s: %s", config.db_path, exc)
             return None
 
-    @app.get("/", response_class=HTMLResponse)
+    @get("/")
     def dashboard(request: Request):
         views = _load_views()
         if views is None:
             return _TEMPLATES.TemplateResponse(request, "no_data.html", {})
         return _TEMPLATES.TemplateResponse(request, "dashboard.html", views)
 
-    @app.get("/fragments/status", response_class=HTMLResponse)
+    @get("/fragments/status")
     def fragment_status(request: Request):
         views = _load_views()
         if views is None:
@@ -338,7 +354,7 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
             request, "_status.html", {"status": views["status"]}
         )
 
-    @app.get("/fragments/watches", response_class=HTMLResponse)
+    @get("/fragments/watches")
     def fragment_watches(request: Request):
         views = _load_views()
         if views is None:
@@ -347,7 +363,7 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
             request, "_watches.html", {"watches": views["watches"]}
         )
 
-    @app.get("/fragments/notifications", response_class=HTMLResponse)
+    @get("/fragments/notifications")
     def fragment_notifications(request: Request):
         views = _load_views()
         if views is None:
@@ -356,7 +372,7 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
             request, "_notifications.html", {"notifications": views["notifications"]}
         )
 
-    @app.get("/watches", response_class=HTMLResponse)
+    @get("/watches")
     def watches_page(request: Request):
         try:
             with _open_db(config) as db:
@@ -378,7 +394,7 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
             status_code=status,
         )
 
-    @app.post("/watches", response_class=HTMLResponse)
+    @post("/watches")
     async def add_watch(request: Request):
         if _is_cross_origin(request):
             return HTMLResponse(
@@ -410,8 +426,10 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
                 '<p class="banner">Database is busy — try again.</p>', status_code=503
             )
 
-    @app.post("/watches/{course_id}/{term_id}/sections", response_class=HTMLResponse)
-    async def edit_sections(request: Request, course_id: str, term_id: str):
+    @post("/watches/{course_id}/{term_id}/sections")
+    async def edit_sections(request: Request):
+        course_id = request.path_params["course_id"]
+        term_id = request.path_params["term_id"]
         if _is_cross_origin(request):
             return HTMLResponse(
                 '<p class="banner">Cross-origin request rejected.</p>', status_code=403
@@ -441,8 +459,10 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
                 '<p class="banner">Database is busy — try again.</p>', status_code=503
             )
 
-    @app.post("/watches/{course_id}/{term_id}/active", response_class=HTMLResponse)
-    async def toggle_active(request: Request, course_id: str, term_id: str):
+    @post("/watches/{course_id}/{term_id}/active")
+    async def toggle_active(request: Request):
+        course_id = request.path_params["course_id"]
+        term_id = request.path_params["term_id"]
         if _is_cross_origin(request):
             return HTMLResponse(
                 '<p class="banner">Cross-origin request rejected.</p>', status_code=403
@@ -466,8 +486,10 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
                 '<p class="banner">Database is busy — try again.</p>', status_code=503
             )
 
-    @app.post("/watches/{course_id}/{term_id}/delete", response_class=HTMLResponse)
-    async def delete_watch_route(request: Request, course_id: str, term_id: str):
+    @post("/watches/{course_id}/{term_id}/delete")
+    async def delete_watch_route(request: Request):
+        course_id = request.path_params["course_id"]
+        term_id = request.path_params["term_id"]
         if _is_cross_origin(request):
             return HTMLResponse(
                 '<p class="banner">Cross-origin request rejected.</p>', status_code=403
@@ -501,7 +523,7 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
                 '<p class="banner">Database is busy — try again.</p>', status_code=503
             )
 
-    @app.get("/notifications", response_class=HTMLResponse)
+    @get("/notifications")
     def notifications_page(request: Request):
         course_id = request.query_params.get("course") or None
         since = request.query_params.get("since") or None
@@ -536,4 +558,4 @@ def create_app(config: AppConfig, file_watches) -> FastAPI:
             request, "notifications.html", {"view": view}
         )
 
-    return app
+    return Starlette(routes=routes)
