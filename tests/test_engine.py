@@ -1,19 +1,11 @@
-import pytest
+import threading
 
-import testudo_watch.engine as engine
 from testudo_watch.db import Database
 from testudo_watch.engine import format_opening, run
 from testudo_watch.config import AppConfig
 from testudo_watch.models import OpeningEvent, SectionSnapshot, Watch
 from testudo_watch.notifier import NotifierError
 from testudo_watch.scraper import ScrapeError
-
-
-@pytest.fixture(autouse=True)
-def _reset_stop_flag():
-    engine._stop = False
-    yield
-    engine._stop = False
 
 
 def cfg():
@@ -61,7 +53,7 @@ def test_run_once_notifies_and_persists(tmp_path):
     db.close()
 
 
-def test_run_loop_runs_one_cycle_then_stops_on_sleep(tmp_path):
+def test_run_loop_runs_one_cycle_then_stops_when_poll_wait_is_interrupted(tmp_path):
     db = Database(tmp_path / "s.db")
     db.sync_watches([Watch("CMSC351", "202601", ())])
     notifier = FakeNotifier()
@@ -69,24 +61,51 @@ def test_run_loop_runs_one_cycle_then_stops_on_sleep(tmp_path):
     def fake_fetch(session, course_id, term_id):
         return [snap("CMSC351", "0101", 6)]
 
+    stop_event = threading.Event()
     calls = {"n": 0}
 
-    def fake_sleep(_seconds):
+    def fake_wait(timeout=None):
         calls["n"] += 1
-        if calls["n"] == 1:
-            engine._stop = True
+        stop_event.set()  # simulate a stop request arriving during the poll wait
+        return True
+
+    stop_event.wait = fake_wait
 
     try:
         result = run(
             cfg(), db, notifier, None, once=False,
-            fetch=fake_fetch, sleep=fake_sleep,
+            fetch=fake_fetch, sleep=lambda s: None, stop_event=stop_event,
         )
         assert result is None
+        assert calls["n"] == 1  # exited on the first poll-interval wait, not a full 2nd cycle
         assert len(notifier.sent) == 1 and "0101" in notifier.sent[0]
         assert db.get_snapshots(Watch("CMSC351", "202601", ()))["0101"].open_seats == 6
     finally:
-        engine._stop = False
         db.close()
+
+
+def test_run_does_not_share_stop_state_across_calls(tmp_path):
+    db = Database(tmp_path / "s.db")
+    db.sync_watches([Watch("CMSC351", "202601", ())])
+    fetch = lambda s, c, t: [snap("CMSC351", "0101", 6)]
+
+    first_event = threading.Event()
+    first_event.set()  # a caller-provided, already-stopped event
+    run(cfg(), db, FakeNotifier(), None, once=False, fetch=fetch,
+        sleep=lambda s: None, stop_event=first_event)
+
+    # a second call with no stop_event must get its own fresh (unset) one,
+    # not be affected by the first call's event having been left set
+    calls = {"n": 0}
+
+    def fetch_and_count(s, c, t):
+        calls["n"] += 1
+        return [snap("CMSC351", "0101", 6)]
+
+    run(cfg(), db, FakeNotifier(), None, once=True, fetch=fetch_and_count,
+        sleep=lambda s: None)
+    assert calls["n"] == 1
+    db.close()
 
 
 def test_run_once_second_pass_is_silent_when_seats_unchanged(tmp_path):

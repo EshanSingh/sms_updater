@@ -22,15 +22,6 @@ FAILURE_ALERT_THRESHOLD = 5
 POLITE_DELAY_SECONDS = 3
 JITTER_MAX_SECONDS = 5
 
-_stop = False
-
-
-def _request_stop(signum, frame):  # noqa: ARG001
-    global _stop
-    _stop = True
-    _log.info("stop signal received; finishing current cycle")
-
-
 def format_opening(event: OpeningEvent) -> str:
     s = event.snapshot
     return (
@@ -114,11 +105,16 @@ def run(
     fetch: Callable = fetch_sections,
     sleep: Callable[[float], None] = time.sleep,
     failure_counts: dict[str, int] | None = None,
+    stop_event: threading.Event | None = None,
 ) -> None:
-    global _stop
-    _stop = False
+    if stop_event is None:
+        stop_event = threading.Event()
     if failure_counts is None:
         failure_counts = {}
+
+    def _request_stop(signum, frame):  # noqa: ARG001
+        stop_event.set()
+        _log.info("stop signal received; finishing current cycle")
 
     previous_handlers = {}
     if not once and threading.current_thread() is threading.main_thread():
@@ -131,7 +127,7 @@ def run(
         while True:
             cycle_count += 1
             for index, watch in enumerate(db.get_active_watches()):
-                if _stop:
+                if stop_event.is_set():
                     return
                 if index > 0:
                     # polite delay BETWEEN watches, in both once and loop modes
@@ -140,9 +136,15 @@ def run(
                     config, db, notifier, session, watch, fetch, failure_counts
                 )
             db.write_heartbeat(cycle_count)
-            if once or _stop:
+            if once or stop_event.is_set():
                 return
-            sleep(config.poll_interval_seconds + random.uniform(0, JITTER_MAX_SECONDS))
+            # .wait() (unlike time.sleep) returns immediately once something
+            # calls stop_event.set() — a stop request doesn't have to wait out
+            # the rest of the poll interval to take effect.
+            if stop_event.wait(
+                timeout=config.poll_interval_seconds + random.uniform(0, JITTER_MAX_SECONDS)
+            ):
+                return
     finally:
         for sig, handler in previous_handlers.items():
             signal.signal(sig, handler)
